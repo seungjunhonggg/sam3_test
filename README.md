@@ -1,288 +1,288 @@
-# SAM3 Labeling Tool
+# SAM3 라벨링 도구
 
-AI-powered image labeling tool using Meta's Segment Anything Model 3 (SAM3). Features a modern web interface inspired by Roboflow with support for text, point, and box prompts for automatic segmentation.
+Meta의 Segment Anything Model 3 (SAM3)를 활용한 AI 기반 이미지 라벨링 도구입니다. Roboflow에서 영감을 받은 현대적인 웹 인터페이스로, 텍스트, 포인트, 박스 프롬프트를 사용한 자동 세그멘테이션을 지원합니다.
 
-## Features
+## 주요 기능
 
-### Labeling Tools
-- **Polygon Tool**: Draw polygons manually for precise annotations
-- **Bounding Box Tool**: Quick rectangular annotations
-- **Brush Tool**: Paint masks directly on images
-- **SAM3 Point**: Click on objects to auto-segment using SAM3
-- **SAM3 Box**: Draw a box to segment objects within
-- **SAM3 Text**: Describe objects in natural language (SAM3's open-vocabulary feature)
+### 라벨링 도구
+- **폴리곤 도구**: 정밀한 어노테이션을 위한 수동 폴리곤 그리기
+- **바운딩 박스 도구**: 빠른 사각형 어노테이션
+- **브러시 도구**: 이미지에 직접 마스크 페인팅
+- **SAM3 포인트**: 객체를 클릭하면 SAM3가 자동으로 세그멘테이션
+- **SAM3 박스**: 박스를 그리면 해당 영역 내 객체를 세그멘테이션
+- **SAM3 텍스트**: 자연어로 객체를 설명하여 세그멘테이션 (SAM3의 open-vocabulary 기능)
 
-### Project Management
-- Create and manage multiple labeling projects
-- Define custom class labels with colors
-- Track annotation progress (pending, annotated, reviewed)
-- Upload multiple images via drag & drop
+### 프로젝트 관리
+- 여러 라벨링 프로젝트 생성 및 관리
+- 색상과 함께 커스텀 클래스 라벨 정의
+- 어노테이션 진행 상황 추적 (대기중, 완료, 검토됨)
+- 드래그 앤 드롭으로 여러 이미지 업로드
 
-### Export Formats
-- **COCO JSON**: Standard COCO format annotations
-- **YOLO**: YOLO format for object detection
-- **YOLO Segmentation**: YOLO format with polygon coordinates
-- **Pascal VOC**: XML format annotations
-- **Mask Images**: Binary mask PNGs
-- **SAM3 Training**: Format ready for SAM3 fine-tuning
+### 내보내기 형식
+- **COCO JSON**: 표준 COCO 형식 어노테이션
+- **YOLO**: 객체 탐지용 YOLO 형식
+- **YOLO 세그멘테이션**: 폴리곤 좌표 포함 YOLO 형식
+- **Pascal VOC**: XML 형식 어노테이션
+- **마스크 이미지**: 바이너리 마스크 PNG
+- **SAM3 학습용**: SAM3 파인튜닝에 바로 사용 가능한 형식
 
-### Fine-tuning
-- Train SAM3 on your labeled data directly from the UI
-- Configure training parameters (batch size, learning rate, epochs)
-- Support for LoRA efficient fine-tuning
-- Real-time training logs and progress
-- Apply fine-tuned models for better segmentation
+### 파인튜닝
+- UI에서 직접 라벨링한 데이터로 SAM3 학습
+- 학습 파라미터 설정 (배치 사이즈, 학습률, 에폭)
+- LoRA를 활용한 효율적인 파인튜닝 지원
+- 실시간 학습 로그 및 진행 상황 확인
+- 파인튜닝된 모델을 바로 적용하여 더 나은 세그멘테이션
 
-## Requirements
+## 시스템 요구사항
 
-### For GPU (Recommended)
-- Python 3.12+
-- CUDA 12.6+
-- PyTorch 2.7+
-- NVIDIA GPU with 16GB+ VRAM (for full SAM3 model)
+### GPU 사용 시 (권장)
+- Python 3.12 이상
+- CUDA 12.6 이상
+- PyTorch 2.7 이상
+- 16GB 이상 VRAM의 NVIDIA GPU (전체 SAM3 모델용)
 
-### For CPU (Limited functionality)
-- Python 3.12+
-- PyTorch 2.7+
-- Note: SAM3 inference will be slow without GPU
+### CPU 사용 시 (제한된 기능)
+- Python 3.12 이상
+- PyTorch 2.7 이상
+- 참고: GPU 없이는 SAM3 추론 속도가 느립니다
 
-## Installation
+## 설치 방법
 
-### Option 1: Docker (Recommended)
+### 방법 1: Docker (권장)
 
 ```bash
-# With NVIDIA GPU
+# NVIDIA GPU 사용 시
 docker-compose up -d
 
-# CPU only (development)
+# CPU만 사용 (개발용)
 docker-compose --profile cpu up -d
 ```
 
-### Option 2: Manual Installation
+### 방법 2: 수동 설치
 
-1. **Clone the repository**
+1. **저장소 복제**
 ```bash
 git clone <repository-url>
 cd sam3-labeling-tool
 ```
 
-2. **Install SAM3**
+2. **SAM3 설치**
 ```bash
-# Create conda environment
+# conda 환경 생성
 conda create -n sam3 python=3.12
 conda activate sam3
 
-# Install PyTorch with CUDA
+# CUDA 지원 PyTorch 설치
 pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
-# Clone and install SAM3
+# SAM3 복제 및 설치
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
 pip install -e .
 cd ..
 ```
 
-3. **Authenticate with HuggingFace**
+3. **HuggingFace 인증**
 ```bash
-# Request access at https://huggingface.co/facebook/sam3
+# https://huggingface.co/facebook/sam3 에서 접근 권한 요청
 huggingface-cli login
 ```
 
-4. **Install Backend**
+4. **백엔드 설치**
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-5. **Install Frontend**
+5. **프론트엔드 설치**
 ```bash
 cd frontend
 npm install
 ```
 
-6. **Start the application**
+6. **애플리케이션 실행**
 ```bash
-# Terminal 1: Backend
+# 터미널 1: 백엔드
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Terminal 2: Frontend (development)
+# 터미널 2: 프론트엔드 (개발 모드)
 cd frontend
 npm run dev
 ```
 
-7. **Open the application**
+7. **애플리케이션 열기**
 ```
 http://localhost:3000
 ```
 
-## Usage
+## 사용 방법
 
-### Creating a Project
+### 프로젝트 생성
 
-1. Click "New Project" on the Projects page
-2. Enter project name and description
-3. Select annotation type (instance segmentation, semantic, or bounding box)
-4. Default classes will be created - customize them later
+1. 프로젝트 페이지에서 "새 프로젝트" 클릭
+2. 프로젝트 이름과 설명 입력
+3. 어노테이션 유형 선택 (인스턴스 세그멘테이션, 시맨틱, 바운딩 박스)
+4. 기본 클래스가 생성됨 - 나중에 커스터마이징 가능
 
-### Uploading Images
+### 이미지 업로드
 
-1. Open your project
-2. Drag & drop images or click to select files
-3. Supported formats: PNG, JPG, JPEG, WebP, BMP
+1. 프로젝트 열기
+2. 이미지를 드래그 앤 드롭하거나 클릭하여 파일 선택
+3. 지원 형식: PNG, JPG, JPEG, WebP, BMP
 
-### Annotating Images
+### 이미지 어노테이션
 
-1. Click "Annotate" on any image
-2. Select a class from the right panel
-3. Choose a tool:
-   - **V** - Select: Click to select annotations
-   - **P** - Polygon: Click to add points, Enter to complete
-   - **B** - Box: Click and drag to draw boxes
-   - **S** - SAM3 Point: Click on objects for auto-segmentation
-   - **X** - SAM3 Box: Draw a box for auto-segmentation
-   - **T** - SAM3 Text: Type description for open-vocabulary segmentation
+1. 이미지에서 "어노테이션" 클릭
+2. 우측 패널에서 클래스 선택
+3. 도구 선택:
+   - **V** - 선택: 어노테이션 클릭하여 선택
+   - **P** - 폴리곤: 클릭하여 점 추가, Enter로 완료
+   - **B** - 박스: 클릭하고 드래그하여 박스 그리기
+   - **S** - SAM3 포인트: 객체를 클릭하여 자동 세그멘테이션
+   - **X** - SAM3 박스: 박스를 그려서 자동 세그멘테이션
+   - **T** - SAM3 텍스트: 설명을 입력하여 open-vocabulary 세그멘테이션
 
-### Keyboard Shortcuts
+### 키보드 단축키
 
-| Key | Action |
+| 키 | 동작 |
 |-----|--------|
-| V | Select tool |
-| P | Polygon tool |
-| B | Bounding box tool |
-| S | SAM3 point tool |
-| X | SAM3 box tool |
-| T | SAM3 text tool |
-| Enter | Complete polygon |
-| Escape | Cancel current action |
-| Delete | Delete selected annotation |
-| Ctrl+Z | Undo |
-| Ctrl+Shift+Z | Redo |
-| Arrow Left/Right | Previous/Next image |
+| V | 선택 도구 |
+| P | 폴리곤 도구 |
+| B | 바운딩 박스 도구 |
+| S | SAM3 포인트 도구 |
+| X | SAM3 박스 도구 |
+| T | SAM3 텍스트 도구 |
+| Enter | 폴리곤 완료 |
+| Escape | 현재 작업 취소 |
+| Delete | 선택한 어노테이션 삭제 |
+| Ctrl+Z | 실행 취소 |
+| Ctrl+Shift+Z | 다시 실행 |
+| 좌/우 화살표 | 이전/다음 이미지 |
 
-### Fine-tuning SAM3
+### SAM3 파인튜닝
 
-1. Go to your project's Training page
-2. Click "New Run"
-3. Configure training parameters:
-   - **Batch Size**: 4 (adjust based on GPU memory)
-   - **Learning Rate**: 1e-5
-   - **Epochs**: 10
-   - **Use LoRA**: Recommended for efficient training
-4. Click "Start Training"
-5. Monitor progress in real-time
-6. Click "Apply Model" when complete to use your fine-tuned model
+1. 프로젝트의 학습 페이지로 이동
+2. "새 학습" 클릭
+3. 학습 파라미터 설정:
+   - **배치 사이즈**: 4 (GPU 메모리에 따라 조절)
+   - **학습률**: 1e-5
+   - **에폭**: 10
+   - **LoRA 사용**: 효율적인 학습을 위해 권장
+4. "학습 시작" 클릭
+5. 실시간으로 진행 상황 모니터링
+6. 완료되면 "모델 적용"을 클릭하여 파인튜닝된 모델 사용
 
-### Exporting Data
+### 데이터 내보내기
 
-1. Open your project
-2. Click "Export"
-3. Select format (COCO, YOLO, etc.)
-4. Choose whether to include images
-5. Download the exported file
+1. 프로젝트 열기
+2. "내보내기" 클릭
+3. 형식 선택 (COCO, YOLO 등)
+4. 이미지 포함 여부 선택
+5. 내보낸 파일 다운로드
 
-## API Reference
+## API 레퍼런스
 
-The backend exposes a RESTful API:
+백엔드는 RESTful API를 제공합니다:
 
-### Projects
-- `GET /api/projects` - List all projects
-- `POST /api/projects` - Create a project
-- `GET /api/projects/{id}` - Get project details
-- `PUT /api/projects/{id}` - Update project
-- `DELETE /api/projects/{id}` - Delete project
+### 프로젝트
+- `GET /api/projects` - 모든 프로젝트 목록
+- `POST /api/projects` - 프로젝트 생성
+- `GET /api/projects/{id}` - 프로젝트 상세 정보
+- `PUT /api/projects/{id}` - 프로젝트 수정
+- `DELETE /api/projects/{id}` - 프로젝트 삭제
 
-### Images
-- `POST /api/images/upload/{project_id}` - Upload images
-- `GET /api/images/project/{project_id}` - List project images
-- `GET /api/images/{id}` - Get image details
-- `DELETE /api/images/{id}` - Delete image
+### 이미지
+- `POST /api/images/upload/{project_id}` - 이미지 업로드
+- `GET /api/images/project/{project_id}` - 프로젝트 이미지 목록
+- `GET /api/images/{id}` - 이미지 상세 정보
+- `DELETE /api/images/{id}` - 이미지 삭제
 
-### Annotations
-- `GET /api/annotations/image/{image_id}` - Get image annotations
-- `POST /api/annotations` - Create annotation
-- `POST /api/annotations/bulk` - Create multiple annotations
-- `PUT /api/annotations/{id}` - Update annotation
-- `DELETE /api/annotations/{id}` - Delete annotation
+### 어노테이션
+- `GET /api/annotations/image/{image_id}` - 이미지 어노테이션 조회
+- `POST /api/annotations` - 어노테이션 생성
+- `POST /api/annotations/bulk` - 여러 어노테이션 일괄 생성
+- `PUT /api/annotations/{id}` - 어노테이션 수정
+- `DELETE /api/annotations/{id}` - 어노테이션 삭제
 
-### Segmentation (SAM3)
-- `POST /api/segmentation/set-image/{image_id}` - Set current image
-- `POST /api/segmentation/text` - Segment with text prompt
-- `POST /api/segmentation/points` - Segment with point prompts
-- `POST /api/segmentation/box` - Segment with box prompt
-- `POST /api/segmentation/auto` - Auto-segment all objects
+### 세그멘테이션 (SAM3)
+- `POST /api/segmentation/set-image/{image_id}` - 현재 이미지 설정
+- `POST /api/segmentation/text` - 텍스트 프롬프트로 세그멘테이션
+- `POST /api/segmentation/points` - 포인트 프롬프트로 세그멘테이션
+- `POST /api/segmentation/box` - 박스 프롬프트로 세그멘테이션
+- `POST /api/segmentation/auto` - 모든 객체 자동 세그멘테이션
 
-### Training
-- `GET /api/training/project/{project_id}` - List training runs
-- `POST /api/training` - Start new training run
-- `GET /api/training/{id}/logs` - Get training logs
-- `POST /api/training/{id}/cancel` - Cancel training
-- `POST /api/training/{id}/apply` - Apply fine-tuned model
+### 학습
+- `GET /api/training/project/{project_id}` - 학습 실행 목록
+- `POST /api/training` - 새 학습 실행 시작
+- `GET /api/training/{id}/logs` - 학습 로그 조회
+- `POST /api/training/{id}/cancel` - 학습 취소
+- `POST /api/training/{id}/apply` - 파인튜닝된 모델 적용
 
-### Export
-- `GET /api/export/formats` - List available export formats
-- `POST /api/export/project/{project_id}` - Export project data
+### 내보내기
+- `GET /api/export/formats` - 사용 가능한 내보내기 형식 목록
+- `POST /api/export/project/{project_id}` - 프로젝트 데이터 내보내기
 
-## Project Structure
+## 프로젝트 구조
 
 ```
 sam3-labeling-tool/
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── config.py         # Configuration settings
-│   │   ├── database.py       # Database models
-│   │   └── main.py           # FastAPI application
+│   │   ├── config.py         # 설정
+│   │   ├── database.py       # 데이터베이스 모델
+│   │   └── main.py           # FastAPI 애플리케이션
 │   ├── routers/
-│   │   ├── projects.py       # Project endpoints
-│   │   ├── images.py         # Image endpoints
-│   │   ├── annotations.py    # Annotation endpoints
-│   │   ├── segmentation.py   # SAM3 endpoints
-│   │   ├── training.py       # Training endpoints
-│   │   └── export.py         # Export endpoints
+│   │   ├── projects.py       # 프로젝트 엔드포인트
+│   │   ├── images.py         # 이미지 엔드포인트
+│   │   ├── annotations.py    # 어노테이션 엔드포인트
+│   │   ├── segmentation.py   # SAM3 엔드포인트
+│   │   ├── training.py       # 학습 엔드포인트
+│   │   └── export.py         # 내보내기 엔드포인트
 │   ├── services/
-│   │   ├── sam3_service.py   # SAM3 model service
-│   │   └── training_service.py # Training service
+│   │   ├── sam3_service.py   # SAM3 모델 서비스
+│   │   └── training_service.py # 학습 서비스
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # React components
-│   │   ├── pages/            # Page components
-│   │   ├── store/            # Zustand state management
-│   │   ├── utils/            # API utilities
-│   │   └── styles/           # CSS styles
+│   │   ├── components/       # React 컴포넌트
+│   │   ├── pages/            # 페이지 컴포넌트
+│   │   ├── store/            # Zustand 상태 관리
+│   │   ├── utils/            # API 유틸리티
+│   │   └── styles/           # CSS 스타일
 │   ├── package.json
 │   └── vite.config.ts
-├── data/                     # Data storage
-├── models/                   # Model checkpoints
+├── data/                     # 데이터 저장소
+├── models/                   # 모델 체크포인트
 ├── docker-compose.yml
 ├── Dockerfile
 └── README.md
 ```
 
-## Troubleshooting
+## 문제 해결
 
-### SAM3 not loading
-- Ensure you have requested and received access to SAM3 on HuggingFace
-- Run `huggingface-cli login` with your token
-- Check GPU memory (SAM3 requires ~16GB VRAM)
+### SAM3가 로드되지 않는 경우
+- HuggingFace에서 SAM3 접근 권한을 요청하고 승인받았는지 확인
+- 토큰으로 `huggingface-cli login` 실행
+- GPU 메모리 확인 (SAM3는 약 16GB VRAM 필요)
 
-### Training fails
-- Ensure at least 5 annotated images
-- Reduce batch size if running out of GPU memory
-- Check training logs for specific errors
+### 학습 실패 시
+- 최소 5개 이상의 어노테이션된 이미지가 있는지 확인
+- GPU 메모리 부족 시 배치 사이즈 줄이기
+- 학습 로그에서 구체적인 오류 확인
 
-### Slow segmentation
-- GPU is required for real-time segmentation
-- CPU mode works but is significantly slower
+### 세그멘테이션이 느린 경우
+- 실시간 세그멘테이션을 위해서는 GPU 필요
+- CPU 모드도 작동하지만 상당히 느림
 
-## License
+## 라이선스
 
-This project is for educational and research purposes. SAM3 model is released under Meta's license - see [facebook/sam3](https://github.com/facebookresearch/sam3) for details.
+이 프로젝트는 교육 및 연구 목적입니다. SAM3 모델은 Meta의 라이선스 하에 배포됩니다 - 자세한 내용은 [facebook/sam3](https://github.com/facebookresearch/sam3)를 참조하세요.
 
-## Acknowledgments
+## 감사의 글
 
 - [Meta AI - SAM3](https://github.com/facebookresearch/sam3)
-- [Roboflow](https://roboflow.com) for UI/UX inspiration
+- [Roboflow](https://roboflow.com) - UI/UX 영감
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [React](https://reactjs.org/)

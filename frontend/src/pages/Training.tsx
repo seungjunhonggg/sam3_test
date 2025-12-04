@@ -60,7 +60,7 @@ export default function Training() {
         loadLogs(runsRes.data[0].id)
       }
     } catch (error) {
-      toast.error('Failed to load training data')
+      toast.error('학습 데이터를 불러오는데 실패했습니다')
     } finally {
       setIsLoading(false)
     }
@@ -78,7 +78,7 @@ export default function Training() {
         }
       }
     } catch (error) {
-      console.error('Failed to refresh training runs')
+      console.error('학습 실행 목록 새로고침 실패')
     }
   }
 
@@ -87,7 +87,7 @@ export default function Training() {
       const response = await trainingApi.getLogs(runId)
       setLogs(response.data.logs)
     } catch (error) {
-      console.error('Failed to load logs')
+      console.error('로그 로딩 실패')
     }
   }
 
@@ -107,7 +107,7 @@ export default function Training() {
           lora_rank: newRunConfig.lora_rank
         }
       })
-      toast.success('Training started')
+      toast.success('학습이 시작되었습니다')
       setShowNewRunModal(false)
       setSelectedRun(response.data)
       loadTrainingRuns()
@@ -120,26 +120,26 @@ export default function Training() {
         lora_rank: 8
       })
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to start training')
+      toast.error(error.response?.data?.detail || '학습 시작에 실패했습니다')
     }
   }
 
   const handleCancelTraining = async (runId: number) => {
     try {
       await trainingApi.cancel(runId)
-      toast.success('Training cancelled')
+      toast.success('학습이 취소되었습니다')
       loadTrainingRuns()
     } catch (error) {
-      toast.error('Failed to cancel training')
+      toast.error('학습 취소에 실패했습니다')
     }
   }
 
   const handleApplyModel = async (runId: number) => {
     try {
       await trainingApi.applyModel(runId)
-      toast.success('Model applied successfully')
+      toast.success('모델이 적용되었습니다')
     } catch (error) {
-      toast.error('Failed to apply model')
+      toast.error('모델 적용에 실패했습니다')
     }
   }
 
@@ -156,9 +156,19 @@ export default function Training() {
     }
   }
 
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'completed': return '완료'
+      case 'failed': return '실패'
+      case 'running': return '진행중'
+      case 'pending': return '대기중'
+      default: return status
+    }
+  }
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleString()
+    return new Date(dateStr).toLocaleString('ko-KR')
   }
 
   if (isLoading) {
@@ -171,38 +181,38 @@ export default function Training() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
+      {/* 헤더 */}
       <div className="px-6 py-4 border-b border-dark-800">
         <div className="flex items-center gap-4 mb-2">
           <Link to={`/projects/${projectId}`} className="text-dark-400 hover:text-white">
             <ArrowLeftIcon className="w-5 h-5" />
           </Link>
-          <h1 className="text-2xl font-bold">Training - {project?.name}</h1>
+          <h1 className="text-2xl font-bold">학습 - {project?.name}</h1>
         </div>
         <p className="text-dark-400 text-sm">
-          Fine-tune SAM3 on your annotated data
+          라벨링한 데이터로 SAM3를 파인튜닝하세요
         </p>
       </div>
 
-      {/* Content */}
+      {/* 콘텐츠 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left panel - Training runs list */}
+        {/* 왼쪽 패널 - 학습 실행 목록 */}
         <div className="w-80 border-r border-dark-800 flex flex-col">
           <div className="p-4 border-b border-dark-800 flex items-center justify-between">
-            <h2 className="font-medium">Training Runs</h2>
+            <h2 className="font-medium">학습 실행</h2>
             <button
               onClick={() => setShowNewRunModal(true)}
               className="btn btn-primary btn-sm flex items-center gap-1"
             >
               <PlayIcon className="w-4 h-4" />
-              New Run
+              새 학습
             </button>
           </div>
           <div className="flex-1 overflow-auto">
             {trainingRuns.length === 0 ? (
               <div className="p-4 text-center text-dark-500">
-                <p>No training runs yet</p>
-                <p className="text-sm mt-1">Start a new run to fine-tune SAM3</p>
+                <p>아직 학습 실행이 없습니다</p>
+                <p className="text-sm mt-1">새 학습을 시작하여 SAM3를 파인튜닝하세요</p>
               </div>
             ) : (
               trainingRuns.map((run) => (
@@ -221,7 +231,7 @@ export default function Training() {
                     <span className="font-medium">{run.name}</span>
                   </div>
                   <div className="text-sm text-dark-500 mt-1">
-                    {run.num_epochs} epochs | LR: {run.learning_rate}
+                    {run.num_epochs} 에폭 | 학습률: {run.learning_rate}
                   </div>
                   <div className="text-xs text-dark-600 mt-1">
                     {formatDate(run.created_at)}
@@ -232,11 +242,11 @@ export default function Training() {
           </div>
         </div>
 
-        {/* Right panel - Run details */}
+        {/* 오른쪽 패널 - 실행 상세 */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {selectedRun ? (
             <>
-              {/* Run header */}
+              {/* 실행 헤더 */}
               <div className="p-4 border-b border-dark-800">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -248,7 +258,7 @@ export default function Training() {
                       selectedRun.status === 'running' ? 'bg-blue-900/50 text-blue-400' :
                       'bg-yellow-900/50 text-yellow-400'
                     }`}>
-                      {selectedRun.status}
+                      {getStatusText(selectedRun.status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -258,7 +268,7 @@ export default function Training() {
                         className="btn btn-danger flex items-center gap-1"
                       >
                         <StopIcon className="w-4 h-4" />
-                        Cancel
+                        취소
                       </button>
                     )}
                     {selectedRun.status === 'completed' && selectedRun.checkpoint_path && (
@@ -266,37 +276,37 @@ export default function Training() {
                         onClick={() => handleApplyModel(selectedRun.id)}
                         className="btn btn-success"
                       >
-                        Apply Model
+                        모델 적용
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Config */}
+                {/* 설정 */}
                 <div className="mt-4 grid grid-cols-4 gap-4">
                   <div className="bg-dark-800 p-3 rounded-lg">
-                    <div className="text-xs text-dark-500">Batch Size</div>
+                    <div className="text-xs text-dark-500">배치 사이즈</div>
                     <div className="text-lg font-medium">{selectedRun.batch_size}</div>
                   </div>
                   <div className="bg-dark-800 p-3 rounded-lg">
-                    <div className="text-xs text-dark-500">Learning Rate</div>
+                    <div className="text-xs text-dark-500">학습률</div>
                     <div className="text-lg font-medium">{selectedRun.learning_rate}</div>
                   </div>
                   <div className="bg-dark-800 p-3 rounded-lg">
-                    <div className="text-xs text-dark-500">Epochs</div>
+                    <div className="text-xs text-dark-500">에폭</div>
                     <div className="text-lg font-medium">{selectedRun.num_epochs}</div>
                   </div>
                   <div className="bg-dark-800 p-3 rounded-lg">
-                    <div className="text-xs text-dark-500">Started</div>
+                    <div className="text-xs text-dark-500">시작 시간</div>
                     <div className="text-sm font-medium">{formatDate(selectedRun.started_at)}</div>
                   </div>
                 </div>
               </div>
 
-              {/* Logs */}
+              {/* 로그 */}
               <div className="flex-1 overflow-hidden flex flex-col">
                 <div className="p-4 border-b border-dark-800 flex items-center justify-between">
-                  <h3 className="font-medium">Training Logs</h3>
+                  <h3 className="font-medium">학습 로그</h3>
                   <button
                     onClick={() => loadLogs(selectedRun.id)}
                     className="text-dark-400 hover:text-white"
@@ -306,7 +316,7 @@ export default function Training() {
                 </div>
                 <div className="flex-1 overflow-auto p-4 bg-dark-950 font-mono text-sm">
                   {logs.length === 0 ? (
-                    <div className="text-dark-500">No logs available</div>
+                    <div className="text-dark-500">로그가 없습니다</div>
                   ) : (
                     logs.map((log, i) => (
                       <div key={i} className="text-dark-300 py-0.5">
@@ -319,35 +329,35 @@ export default function Training() {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-dark-500">
-              Select a training run to view details
+              학습 실행을 선택하여 상세 정보를 확인하세요
             </div>
           )}
         </div>
       </div>
 
-      {/* New Run Modal */}
+      {/* 새 학습 모달 */}
       {showNewRunModal && (
         <div className="modal-overlay" onClick={() => setShowNewRunModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 border-b border-dark-700">
-              <h2 className="text-xl font-bold">Start New Training Run</h2>
+              <h2 className="text-xl font-bold">새 학습 시작</h2>
             </div>
             <form onSubmit={handleStartTraining} className="p-6 space-y-4">
               <div>
-                <label className="form-label">Run Name</label>
+                <label className="form-label">실행 이름</label>
                 <input
                   type="text"
                   className="form-input"
                   value={newRunConfig.name}
                   onChange={(e) => setNewRunConfig({ ...newRunConfig, name: e.target.value })}
-                  placeholder="e.g., training_run_1"
+                  placeholder="예: training_run_1"
                   required
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="form-label">Batch Size</label>
+                  <label className="form-label">배치 사이즈</label>
                   <input
                     type="number"
                     className="form-input"
@@ -358,7 +368,7 @@ export default function Training() {
                   />
                 </div>
                 <div>
-                  <label className="form-label">Number of Epochs</label>
+                  <label className="form-label">에폭 수</label>
                   <input
                     type="number"
                     className="form-input"
@@ -371,7 +381,7 @@ export default function Training() {
               </div>
 
               <div>
-                <label className="form-label">Learning Rate</label>
+                <label className="form-label">학습률</label>
                 <input
                   type="number"
                   className="form-input"
@@ -392,11 +402,11 @@ export default function Training() {
                     onChange={(e) => setNewRunConfig({ ...newRunConfig, use_lora: e.target.checked })}
                     className="rounded border-dark-600 bg-dark-700 text-primary-600"
                   />
-                  <label htmlFor="useLora" className="text-sm">Use LoRA</label>
+                  <label htmlFor="useLora" className="text-sm">LoRA 사용</label>
                 </div>
                 {newRunConfig.use_lora && (
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-dark-400">LoRA Rank:</label>
+                    <label className="text-sm text-dark-400">LoRA 랭크:</label>
                     <input
                       type="number"
                       className="form-input w-20"
@@ -410,24 +420,24 @@ export default function Training() {
               </div>
 
               <div className="bg-dark-700 p-3 rounded-lg text-sm text-dark-400">
-                <p>Requirements:</p>
+                <p>요구사항:</p>
                 <ul className="list-disc list-inside mt-1">
-                  <li>At least 5 annotated images</li>
-                  <li>GPU recommended for faster training</li>
+                  <li>최소 5개의 어노테이션된 이미지 필요</li>
+                  <li>빠른 학습을 위해 GPU 권장</li>
                 </ul>
               </div>
 
               <div className="flex gap-3 pt-4">
                 <button type="submit" className="btn btn-primary flex-1 flex items-center justify-center gap-2">
                   <PlayIcon className="w-4 h-4" />
-                  Start Training
+                  학습 시작
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowNewRunModal(false)}
                   className="btn btn-secondary"
                 >
-                  Cancel
+                  취소
                 </button>
               </div>
             </form>

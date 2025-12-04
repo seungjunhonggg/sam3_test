@@ -40,7 +40,7 @@ export default function ProjectDetail() {
       setProject(response.data)
       setEditingClasses(response.data.classes || [])
     } catch (error) {
-      toast.error('Failed to load project')
+      toast.error('프로젝트를 불러오는데 실패했습니다')
     }
   }
 
@@ -50,7 +50,7 @@ export default function ProjectDetail() {
       const response = await imageApi.list(Number(projectId))
       setImages(response.data)
     } catch (error) {
-      toast.error('Failed to load images')
+      toast.error('이미지를 불러오는데 실패했습니다')
     } finally {
       setIsLoading(false)
     }
@@ -61,11 +61,11 @@ export default function ProjectDetail() {
     try {
       setIsUploading(true)
       await imageApi.upload(Number(projectId), acceptedFiles)
-      toast.success(`Uploaded ${acceptedFiles.length} images`)
+      toast.success(`${acceptedFiles.length}개 이미지가 업로드되었습니다`)
       loadImages()
       loadProject()
     } catch (error) {
-      toast.error('Failed to upload images')
+      toast.error('이미지 업로드에 실패했습니다')
     } finally {
       setIsUploading(false)
     }
@@ -79,14 +79,14 @@ export default function ProjectDetail() {
   })
 
   const handleDeleteImage = async (imageId: number) => {
-    if (!confirm('Delete this image?')) return
+    if (!confirm('이 이미지를 삭제하시겠습니까?')) return
     try {
       await imageApi.delete(imageId)
-      toast.success('Image deleted')
+      toast.success('이미지가 삭제되었습니다')
       loadImages()
       loadProject()
     } catch (error) {
-      toast.error('Failed to delete image')
+      toast.error('이미지 삭제에 실패했습니다')
     }
   }
 
@@ -101,10 +101,10 @@ export default function ProjectDetail() {
       a.download = `${project?.name || 'export'}_${selectedFormat}.${includeImages ? 'zip' : selectedFormat === 'coco' ? 'json' : 'zip'}`
       a.click()
       window.URL.revokeObjectURL(url)
-      toast.success('Export completed')
+      toast.success('내보내기가 완료되었습니다')
       setShowExportModal(false)
     } catch (error) {
-      toast.error('Failed to export')
+      toast.error('내보내기에 실패했습니다')
     }
   }
 
@@ -112,11 +112,11 @@ export default function ProjectDetail() {
     if (!projectId) return
     try {
       await projectApi.update(Number(projectId), { classes: editingClasses })
-      toast.success('Classes updated')
+      toast.success('클래스가 업데이트되었습니다')
       loadProject()
       setShowClassesModal(false)
     } catch (error) {
-      toast.error('Failed to update classes')
+      toast.error('클래스 업데이트에 실패했습니다')
     }
   }
 
@@ -125,7 +125,7 @@ export default function ProjectDetail() {
     const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
     setEditingClasses([
       ...editingClasses,
-      { id: newId, name: `class_${newId}`, color: colors[newId % colors.length] }
+      { id: newId, name: `클래스_${newId}`, color: colors[newId % colors.length] }
     ])
   }
 
@@ -135,6 +135,15 @@ export default function ProjectDetail() {
 
   const updateClass = (id: number, updates: Partial<ClassConfig>) => {
     setEditingClasses(editingClasses.map(c => c.id === id ? { ...c, ...updates } : c))
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending': return '대기중'
+      case 'annotated': return '완료'
+      case 'reviewed': return '검토됨'
+      default: return status
+    }
   }
 
   if (!project) {
@@ -147,7 +156,7 @@ export default function ProjectDetail() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
+      {/* 헤더 */}
       <div className="px-6 py-4 border-b border-dark-800">
         <div className="flex items-center gap-4 mb-2">
           <Link to="/projects" className="text-dark-400 hover:text-white">
@@ -156,52 +165,55 @@ export default function ProjectDetail() {
           <h1 className="text-2xl font-bold">{project.name}</h1>
         </div>
         <div className="flex items-center justify-between">
-          <p className="text-dark-400 text-sm">{project.description || 'No description'}</p>
+          <p className="text-dark-400 text-sm">{project.description || '설명 없음'}</p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowClassesModal(true)}
               className="btn btn-secondary flex items-center gap-2"
             >
               <Cog6ToothIcon className="w-4 h-4" />
-              Classes ({project.classes.length})
+              클래스 ({project.classes.length})
             </button>
             <Link
               to={`/projects/${projectId}/training`}
               className="btn btn-secondary flex items-center gap-2"
             >
               <AcademicCapIcon className="w-4 h-4" />
-              Training
+              학습
             </Link>
             <button
               onClick={() => setShowExportModal(true)}
               className="btn btn-secondary flex items-center gap-2"
             >
               <ArrowDownTrayIcon className="w-4 h-4" />
-              Export
+              내보내기
             </button>
           </div>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* 통계 */}
       <div className="px-6 py-3 border-b border-dark-800 bg-dark-850 flex gap-6">
         <div>
-          <span className="text-dark-400 text-sm">Images</span>
-          <span className="ml-2 font-medium">{project.image_count}</span>
+          <span className="text-dark-400 text-sm">이미지</span>
+          <span className="ml-2 font-medium">{project.image_count}개</span>
         </div>
         <div>
-          <span className="text-dark-400 text-sm">Annotations</span>
-          <span className="ml-2 font-medium">{project.annotation_count}</span>
+          <span className="text-dark-400 text-sm">어노테이션</span>
+          <span className="ml-2 font-medium">{project.annotation_count}개</span>
         </div>
         <div>
-          <span className="text-dark-400 text-sm">Type</span>
-          <span className="ml-2 font-medium">{project.annotation_type}</span>
+          <span className="text-dark-400 text-sm">유형</span>
+          <span className="ml-2 font-medium">
+            {project.annotation_type === 'instance_segmentation' ? '인스턴스 세그멘테이션' :
+             project.annotation_type === 'semantic' ? '시맨틱 세그멘테이션' : '바운딩 박스'}
+          </span>
         </div>
       </div>
 
-      {/* Content */}
+      {/* 콘텐츠 */}
       <div className="flex-1 overflow-auto p-6">
-        {/* Upload zone */}
+        {/* 업로드 영역 */}
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-lg p-8 mb-6 text-center cursor-pointer transition-colors ${
@@ -214,22 +226,22 @@ export default function ProjectDetail() {
           {isUploading ? (
             <div className="flex items-center justify-center gap-2">
               <div className="spinner w-5 h-5"></div>
-              <span>Uploading...</span>
+              <span>업로드 중...</span>
             </div>
           ) : (
             <>
               <CloudArrowUpIcon className="w-12 h-12 mx-auto text-dark-500 mb-2" />
               <p className="text-dark-400">
-                Drag & drop images here, or click to select files
+                이미지를 여기에 드래그하거나 클릭하여 파일을 선택하세요
               </p>
               <p className="text-dark-500 text-sm mt-1">
-                Supports PNG, JPG, JPEG, WebP, BMP
+                PNG, JPG, JPEG, WebP, BMP 지원
               </p>
             </>
           )}
         </div>
 
-        {/* Image grid */}
+        {/* 이미지 그리드 */}
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="spinner w-8 h-8"></div>
@@ -237,8 +249,8 @@ export default function ProjectDetail() {
         ) : images.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-dark-400">
             <PhotoIcon className="w-16 h-16 mb-4" />
-            <p className="text-lg">No images yet</p>
-            <p className="text-sm">Upload images to start labeling</p>
+            <p className="text-lg">아직 이미지가 없습니다</p>
+            <p className="text-sm">이미지를 업로드하여 라벨링을 시작하세요</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -253,14 +265,14 @@ export default function ProjectDetail() {
                   <button
                     onClick={() => navigate(`/projects/${projectId}/annotate/${image.id}`)}
                     className="p-2 bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
-                    title="Annotate"
+                    title="어노테이션"
                   >
                     <PencilSquareIcon className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => handleDeleteImage(image.id)}
                     className="p-2 bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                    title="Delete"
+                    title="삭제"
                   >
                     <TrashIcon className="w-5 h-5" />
                   </button>
@@ -272,11 +284,11 @@ export default function ProjectDetail() {
                       image.status === 'annotated' ? 'badge-annotated' :
                       image.status === 'reviewed' ? 'badge-reviewed' : 'badge-pending'
                     }`}>
-                      {image.status}
+                      {getStatusText(image.status)}
                     </span>
                     {image.annotation_count > 0 && (
                       <span className="text-xs text-dark-300">
-                        {image.annotation_count} annotations
+                        {image.annotation_count}개 어노테이션
                       </span>
                     )}
                   </div>
@@ -287,16 +299,16 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      {/* Export Modal */}
+      {/* 내보내기 모달 */}
       {showExportModal && (
         <div className="modal-overlay" onClick={() => setShowExportModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 border-b border-dark-700">
-              <h2 className="text-xl font-bold">Export Annotations</h2>
+              <h2 className="text-xl font-bold">어노테이션 내보내기</h2>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="form-label">Format</label>
+                <label className="form-label">형식</label>
                 <select
                   className="form-input"
                   value={selectedFormat}
@@ -304,10 +316,10 @@ export default function ProjectDetail() {
                 >
                   <option value="coco">COCO JSON</option>
                   <option value="yolo">YOLO</option>
-                  <option value="yolo_seg">YOLO Segmentation</option>
+                  <option value="yolo_seg">YOLO 세그멘테이션</option>
                   <option value="pascal_voc">Pascal VOC</option>
-                  <option value="mask">Mask Images</option>
-                  <option value="sam3_training">SAM3 Training</option>
+                  <option value="mask">마스크 이미지</option>
+                  <option value="sam3_training">SAM3 학습용</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -319,18 +331,18 @@ export default function ProjectDetail() {
                   className="rounded border-dark-600 bg-dark-700 text-primary-600 focus:ring-primary-500"
                 />
                 <label htmlFor="includeImages" className="text-sm">
-                  Include images in export
+                  이미지 포함하여 내보내기
                 </label>
               </div>
               <div className="flex gap-3 pt-4">
                 <button onClick={handleExport} className="btn btn-primary flex-1">
-                  Download
+                  다운로드
                 </button>
                 <button
                   onClick={() => setShowExportModal(false)}
                   className="btn btn-secondary"
                 >
-                  Cancel
+                  취소
                 </button>
               </div>
             </div>
@@ -338,12 +350,12 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Classes Modal */}
+      {/* 클래스 모달 */}
       {showClassesModal && (
         <div className="modal-overlay" onClick={() => setShowClassesModal(false)}>
           <div className="modal-content max-w-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 border-b border-dark-700">
-              <h2 className="text-xl font-bold">Manage Classes</h2>
+              <h2 className="text-xl font-bold">클래스 관리</h2>
             </div>
             <div className="p-6 space-y-4 max-h-96 overflow-auto">
               {editingClasses.map((cls) => (
@@ -373,18 +385,18 @@ export default function ProjectDetail() {
                 onClick={addClass}
                 className="w-full py-2 border-2 border-dashed border-dark-600 rounded-lg text-dark-400 hover:border-dark-500 hover:text-dark-300"
               >
-                + Add Class
+                + 클래스 추가
               </button>
             </div>
             <div className="p-6 border-t border-dark-700 flex gap-3">
               <button onClick={handleSaveClasses} className="btn btn-primary flex-1">
-                Save Changes
+                변경사항 저장
               </button>
               <button
                 onClick={() => setShowClassesModal(false)}
                 className="btn btn-secondary"
               >
-                Cancel
+                취소
               </button>
             </div>
           </div>

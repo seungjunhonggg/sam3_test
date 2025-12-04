@@ -32,13 +32,13 @@ import {
 type Tool = 'select' | 'polygon' | 'bbox' | 'point' | 'brush' | 'sam_point' | 'sam_box' | 'sam_text'
 
 const tools = [
-  { id: 'select' as Tool, icon: CursorArrowRaysIcon, name: 'Select', shortcut: 'V' },
-  { id: 'polygon' as Tool, icon: Square2StackIcon, name: 'Polygon', shortcut: 'P' },
-  { id: 'bbox' as Tool, icon: StopIcon, name: 'Bounding Box', shortcut: 'B' },
-  { id: 'brush' as Tool, icon: PaintBrushIcon, name: 'Brush', shortcut: 'R' },
-  { id: 'sam_point' as Tool, icon: SparklesIcon, name: 'SAM3 Point', shortcut: 'S' },
-  { id: 'sam_box' as Tool, icon: SparklesIcon, name: 'SAM3 Box', shortcut: 'X' },
-  { id: 'sam_text' as Tool, icon: ChatBubbleLeftRightIcon, name: 'SAM3 Text', shortcut: 'T' }
+  { id: 'select' as Tool, icon: CursorArrowRaysIcon, name: '선택', shortcut: 'V' },
+  { id: 'polygon' as Tool, icon: Square2StackIcon, name: '폴리곤', shortcut: 'P' },
+  { id: 'bbox' as Tool, icon: StopIcon, name: '바운딩 박스', shortcut: 'B' },
+  { id: 'brush' as Tool, icon: PaintBrushIcon, name: '브러시', shortcut: 'R' },
+  { id: 'sam_point' as Tool, icon: SparklesIcon, name: 'SAM3 포인트', shortcut: 'S' },
+  { id: 'sam_box' as Tool, icon: SparklesIcon, name: 'SAM3 박스', shortcut: 'X' },
+  { id: 'sam_text' as Tool, icon: ChatBubbleLeftRightIcon, name: 'SAM3 텍스트', shortcut: 'T' }
 ]
 
 export default function Annotator() {
@@ -91,7 +91,7 @@ export default function Annotator() {
         img.onload = () => setImageElement(img)
         img.src = imageRes.data.url
       } catch (error) {
-        toast.error('Failed to load image')
+        toast.error('이미지를 불러오는데 실패했습니다')
       } finally {
         setIsLoading(false)
       }
@@ -280,7 +280,7 @@ export default function Annotator() {
 
       case 'sam_point':
         if (selectedClassId === null) {
-          toast.error('Please select a class first')
+          toast.error('먼저 클래스를 선택해주세요')
           return
         }
         setIsSamLoading(true)
@@ -289,9 +289,9 @@ export default function Annotator() {
             { x: coords.x, y: coords.y, label: 1 }
           ])
           setSamPendingMasks(response.data.masks)
-          toast.success(`Found ${response.data.count} segments`)
+          toast.success(`${response.data.count}개의 세그먼트를 찾았습니다`)
         } catch (error) {
-          toast.error('Segmentation failed')
+          toast.error('세그멘테이션에 실패했습니다')
         } finally {
           setIsSamLoading(false)
         }
@@ -347,7 +347,7 @@ export default function Annotator() {
 
       if (activeTool === 'sam_box') {
         if (selectedClassId === null) {
-          toast.error('Please select a class first')
+          toast.error('먼저 클래스를 선택해주세요')
           setTempBox(null)
           return
         }
@@ -355,9 +355,9 @@ export default function Annotator() {
         try {
           const response = await segmentationApi.segmentWithBox(box)
           setSamPendingMasks(response.data.masks)
-          toast.success(`Found ${response.data.count} segments`)
+          toast.success(`${response.data.count}개의 세그먼트를 찾았습니다`)
         } catch (error) {
-          toast.error('Segmentation failed')
+          toast.error('세그멘테이션에 실패했습니다')
         } finally {
           setIsSamLoading(false)
         }
@@ -396,16 +396,16 @@ export default function Annotator() {
       })
       addAnnotation(response.data)
       clearCurrentPoints()
-      toast.success('Annotation saved')
+      toast.success('어노테이션이 저장되었습니다')
     } catch (error) {
-      toast.error('Failed to save annotation')
+      toast.error('어노테이션 저장에 실패했습니다')
     }
   }
 
   // Complete polygon
   const completePolygon = async () => {
     if (currentPoints.length < 3) {
-      toast.error('Polygon needs at least 3 points')
+      toast.error('폴리곤은 최소 3개의 점이 필요합니다')
       return
     }
     await saveAnnotation({
@@ -417,7 +417,7 @@ export default function Annotator() {
   // Accept SAM masks
   const acceptSamMasks = async () => {
     if (selectedClassId === null) {
-      toast.error('Please select a class first')
+      toast.error('먼저 클래스를 선택해주세요')
       return
     }
 
@@ -442,16 +442,16 @@ export default function Annotator() {
       const response = await annotationApi.createBulk(Number(imageId), annotationsToCreate)
       response.data.forEach(ann => addAnnotation(ann))
       clearSamPending()
-      toast.success(`Added ${response.data.length} annotations`)
+      toast.success(`${response.data.length}개의 어노테이션이 추가되었습니다`)
     } catch (error) {
-      toast.error('Failed to save annotations')
+      toast.error('어노테이션 저장에 실패했습니다')
     }
   }
 
   // Text prompt segmentation
   const handleTextSegment = async () => {
     if (!samTextPrompt.trim()) {
-      toast.error('Please enter a text prompt')
+      toast.error('텍스트 프롬프트를 입력해주세요')
       return
     }
 
@@ -459,9 +459,9 @@ export default function Annotator() {
     try {
       const response = await segmentationApi.segmentWithText(samTextPrompt)
       setSamPendingMasks(response.data.masks)
-      toast.success(`Found ${response.data.count} segments for "${samTextPrompt}"`)
+      toast.success(`"${samTextPrompt}"에 대해 ${response.data.count}개의 세그먼트를 찾았습니다`)
     } catch (error) {
-      toast.error('Segmentation failed')
+      toast.error('세그멘테이션에 실패했습니다')
     } finally {
       setIsSamLoading(false)
     }
@@ -473,9 +473,9 @@ export default function Annotator() {
     try {
       await annotationApi.delete(selectedAnnotationId)
       removeAnnotation(selectedAnnotationId)
-      toast.success('Annotation deleted')
+      toast.success('어노테이션이 삭제되었습니다')
     } catch (error) {
-      toast.error('Failed to delete annotation')
+      toast.error('어노테이션 삭제에 실패했습니다')
     }
   }
 
@@ -554,7 +554,7 @@ export default function Annotator() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
+      {/* 헤더 */}
       <div className="px-4 py-2 border-b border-dark-800 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link to={`/projects/${projectId}`} className="text-dark-400 hover:text-white">
@@ -563,7 +563,7 @@ export default function Annotator() {
           <span className="text-sm text-dark-400">{currentImage?.original_filename}</span>
         </div>
 
-        {/* Navigation */}
+        {/* 네비게이션 */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigation.previous_id && navigate(`/projects/${projectId}/annotate/${navigation.previous_id}`)}
@@ -584,20 +584,20 @@ export default function Annotator() {
           </button>
         </div>
 
-        {/* Actions */}
+        {/* 액션 */}
         <div className="flex items-center gap-2">
-          <button onClick={undo} className="toolbar-btn" title="Undo (Ctrl+Z)">
+          <button onClick={undo} className="toolbar-btn" title="실행 취소 (Ctrl+Z)">
             <ArrowUturnLeftIcon className="w-5 h-5" />
           </button>
-          <button onClick={redo} className="toolbar-btn" title="Redo (Ctrl+Shift+Z)">
+          <button onClick={redo} className="toolbar-btn" title="다시 실행 (Ctrl+Shift+Z)">
             <ArrowUturnRightIcon className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Main content */}
+      {/* 메인 콘텐츠 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left toolbar */}
+        {/* 왼쪽 툴바 */}
         <div className="w-14 bg-dark-850 border-r border-dark-800 flex flex-col items-center py-2 gap-1">
           {tools.map((tool) => (
             <button
@@ -611,7 +611,7 @@ export default function Annotator() {
           ))}
         </div>
 
-        {/* Canvas */}
+        {/* 캔버스 */}
         <div ref={containerRef} className="flex-1 relative canvas-container">
           <canvas
             ref={canvasRef}
@@ -623,17 +623,17 @@ export default function Annotator() {
             className="w-full h-full"
           />
 
-          {/* Loading overlay */}
+          {/* 로딩 오버레이 */}
           {isSamLoading && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <div className="flex items-center gap-2 text-white">
                 <div className="spinner w-5 h-5"></div>
-                <span>Running SAM3...</span>
+                <span>SAM3 실행 중...</span>
               </div>
             </div>
           )}
 
-          {/* Zoom controls */}
+          {/* 줌 컨트롤 */}
           <div className="zoom-controls">
             <button onClick={() => setZoom(zoom * 1.2)} className="p-1 hover:bg-dark-700 rounded">
               <MagnifyingGlassPlusIcon className="w-5 h-5" />
@@ -647,7 +647,7 @@ export default function Annotator() {
             </button>
           </div>
 
-          {/* SAM text prompt */}
+          {/* SAM 텍스트 프롬프트 */}
           {activeTool === 'sam_text' && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-dark-800 rounded-lg shadow-lg p-3 flex gap-2">
               <input
@@ -655,46 +655,46 @@ export default function Annotator() {
                 value={samTextPrompt}
                 onChange={(e) => setSamTextPrompt(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleTextSegment()}
-                placeholder="Describe what to segment..."
+                placeholder="세그멘테이션할 대상을 설명하세요..."
                 className="form-input w-64"
               />
               <button onClick={handleTextSegment} className="btn btn-primary">
-                Segment
+                세그먼트
               </button>
             </div>
           )}
 
-          {/* SAM pending masks actions */}
+          {/* SAM 대기 중인 마스크 액션 */}
           {samPendingMasks.length > 0 && (
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-dark-800 rounded-lg shadow-lg p-3 flex gap-2">
               <span className="text-sm text-dark-400 mr-2">
-                {samPendingMasks.length} segments found
+                {samPendingMasks.length}개의 세그먼트 발견
               </span>
               <button onClick={acceptSamMasks} className="btn btn-success flex items-center gap-1">
                 <CheckIcon className="w-4 h-4" />
-                Accept
+                적용
               </button>
               <button onClick={clearSamPending} className="btn btn-secondary">
-                Cancel
+                취소
               </button>
             </div>
           )}
 
-          {/* Polygon complete button */}
+          {/* 폴리곤 완료 버튼 */}
           {activeTool === 'polygon' && currentPoints.length >= 3 && (
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-dark-800 rounded-lg shadow-lg p-3">
               <button onClick={completePolygon} className="btn btn-primary">
-                Complete Polygon (Enter)
+                폴리곤 완료 (Enter)
               </button>
             </div>
           )}
         </div>
 
-        {/* Right panel */}
+        {/* 오른쪽 패널 */}
         <div className="w-72 bg-dark-850 border-l border-dark-800 flex flex-col">
-          {/* Classes */}
+          {/* 클래스 */}
           <div className="border-b border-dark-700">
-            <div className="panel-header">Classes</div>
+            <div className="panel-header">클래스</div>
             <div className="p-2 max-h-48 overflow-auto">
               {currentProject?.classes.map((cls) => (
                 <div
@@ -712,10 +712,10 @@ export default function Annotator() {
             </div>
           </div>
 
-          {/* Annotations */}
+          {/* 어노테이션 */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="panel-header flex items-center justify-between">
-              <span>Annotations ({annotations.length})</span>
+              <span>어노테이션 ({annotations.length})</span>
               <button
                 onClick={handleDeleteAnnotation}
                 disabled={selectedAnnotationId === null}
@@ -744,21 +744,21 @@ export default function Annotator() {
               })}
               {annotations.length === 0 && (
                 <p className="text-dark-500 text-sm text-center py-4">
-                  No annotations yet
+                  아직 어노테이션이 없습니다
                 </p>
               )}
             </div>
           </div>
 
-          {/* Instructions */}
+          {/* 안내 */}
           <div className="border-t border-dark-700 p-3">
             <p className="text-xs text-dark-500">
-              {activeTool === 'polygon' && 'Click to add points. Press Enter to complete.'}
-              {activeTool === 'bbox' && 'Click and drag to draw a box.'}
-              {activeTool === 'sam_point' && 'Click on an object to segment it with SAM3.'}
-              {activeTool === 'sam_box' && 'Draw a box around an object to segment it.'}
-              {activeTool === 'sam_text' && 'Describe the object you want to segment.'}
-              {activeTool === 'select' && 'Click on an annotation to select it.'}
+              {activeTool === 'polygon' && '클릭하여 점을 추가하세요. Enter를 눌러 완료합니다.'}
+              {activeTool === 'bbox' && '클릭하고 드래그하여 박스를 그리세요.'}
+              {activeTool === 'sam_point' && '객체를 클릭하면 SAM3가 세그멘테이션합니다.'}
+              {activeTool === 'sam_box' && '객체 주변에 박스를 그려서 세그멘테이션하세요.'}
+              {activeTool === 'sam_text' && '세그멘테이션할 객체를 설명하세요.'}
+              {activeTool === 'select' && '어노테이션을 클릭하여 선택하세요.'}
             </p>
           </div>
         </div>
