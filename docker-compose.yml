@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  sam3-labeling-tool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sam3-labeling-tool
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - DEVICE=cuda
+      - DEBUG=false
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # Development service without GPU
+  sam3-labeling-tool-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    container_name: sam3-labeling-tool-cpu
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - DEVICE=cpu
+      - DEBUG=true
+    profiles:
+      - cpu
+    restart: unless-stopped
