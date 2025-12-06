@@ -11,11 +11,11 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Frontend (React + Vite)
+### Frontend (Next.js + Mantine UI)
 ```bash
 cd frontend
 npm install
-npm run dev      # Development server (port 5173)
+npm run dev      # Development server (port 3000)
 npm run build    # Production build
 npm run lint     # ESLint check
 ```
@@ -45,12 +45,20 @@ docker-compose --profile cpu up -d    # CPU mode (no GPU)
   - Handles SAM3 fine-tuning with LoRA support
   - Mock training mode available for testing
 
-### Frontend Structure
-- **State Management**: Zustand stores in `frontend/src/store/index.ts`
+### Frontend Structure (Next.js 16 + Mantine UI 8)
+- **Theme**: Apple-inspired design system in `frontend/src/lib/theme.ts`
+  - Custom color palette (appleBlue, appleGray)
+  - SF Pro font family styling
+  - Rounded corners and subtle shadows
+- **State Management**: Zustand stores in `frontend/src/lib/store.ts`
   - `useAnnotationStore` - manages canvas state, annotations, tool selection, SAM3 pending masks, undo/redo history
   - `useUIStore` - sidebar, panel tabs, loading state
-- **API Client** at `frontend/src/utils/api.ts` - axios-based typed API calls
-- **Pages** in `frontend/src/pages/` - ProjectList, ProjectDetail, Annotator, Training
+- **API Client** at `frontend/src/lib/api.ts` - axios-based typed API calls
+- **App Router Pages** in `frontend/src/app/`:
+  - `/` - Project list with search and creation
+  - `/projects/[id]` - Project detail with image upload and class management
+  - `/projects/[id]/annotate` - Canvas-based annotation tool with SAM3 integration
+  - `/training` - SAM3 fine-tuning dashboard
 
 ### Data Flow
 1. Images uploaded via `/api/images/upload/{project_id}` → stored in `data/uploads/`
