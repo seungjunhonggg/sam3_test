@@ -116,11 +116,25 @@ export const annotationsApi = {
 // Segmentation API (SAM3)
 export const segmentationApi = {
   setImage: (imageId: number) => api.post(`/segmentation/set-image/${imageId}`),
-  segmentText: (prompt: string) => api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/text', { prompt }),
-  segmentPoints: (points: number[][], labels: number[]) =>
-    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/points', { points, labels }),
-  segmentBox: (box: number[]) => api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/box', { box }),
-  segmentAuto: () => api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/auto'),
+  segmentText: (prompt: string, imageId?: number) =>
+    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/text', {
+      prompt,
+      image_id: imageId
+    }),
+  segmentPoints: (points: { x: number; y: number; label: number }[], imageId?: number) =>
+    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/points', {
+      points,
+      image_id: imageId
+    }),
+  segmentBox: (box: { x1: number; y1: number; x2: number; y2: number }, imageId?: number) =>
+    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/box', {
+      box,
+      image_id: imageId
+    }),
+  segmentAuto: (imageId: number) =>
+    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/auto', {
+      image_id: imageId
+    }),
 };
 
 // Training API

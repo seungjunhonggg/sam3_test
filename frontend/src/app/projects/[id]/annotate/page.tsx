@@ -288,7 +288,7 @@ export default function AnnotatePage({ params }: Props) {
       case 'sam_point':
         setSamLoading(true);
         try {
-          const response = await segmentationApi.segmentPoints([[x, y]], [1]);
+          const response = await segmentationApi.segmentPoints([{ x, y, label: 1 }]);
           setSamPendingMasks(response.data.masks);
         } catch (error) {
           notifications.show({
@@ -346,7 +346,12 @@ export default function AnnotatePage({ params }: Props) {
     } else if (activeTool === 'sam_box') {
       setSamLoading(true);
       try {
-        const response = await segmentationApi.segmentBox(box);
+        const response = await segmentationApi.segmentBox({
+          x1: box[0],
+          y1: box[1],
+          x2: box[2],
+          y2: box[3]
+        });
         setSamPendingMasks(response.data.masks);
       } catch (error) {
         notifications.show({
