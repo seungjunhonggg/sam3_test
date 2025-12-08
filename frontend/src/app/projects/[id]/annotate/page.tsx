@@ -243,10 +243,16 @@ export default function AnnotatePage({ params }: Props) {
     });
 
     // Draw pending SAM masks
-    samPendingMasks.forEach((mask) => {
+    console.log('Drawing SAM masks:', samPendingMasks.length, samPendingMasks);
+    samPendingMasks.forEach((mask, idx) => {
+      console.log(`Mask ${idx} polygon:`, mask.polygon);
       const cls = project?.classes.find((c) => c.id === selectedClassId);
       const color = cls?.color || '#0071ff';
-      drawPolygon(ctx, mask.polygon, color, false, 0.4);
+      if (mask.polygon && mask.polygon.length >= 3) {
+        drawPolygon(ctx, mask.polygon, color, false, 0.4);
+      } else {
+        console.warn(`Mask ${idx} has invalid polygon:`, mask.polygon);
+      }
     });
 
     // Draw current drawing points (폴리곤, 브러시)
