@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, use } from 'react';
+import { useEffect, useState, useRef, useCallback, use, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Box,
@@ -67,6 +67,8 @@ export default function AnnotatePage({ params }: Props) {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);  // 이미지 캐싱용
+  const imageLoadedRef = useRef<string | null>(null);  // 현재 로드된 이미지 URL 추적
 
   const [project, setProject] = useState<Project | null>(null);
   const [images, setImages] = useState<Image[]>([]);
@@ -131,12 +133,37 @@ export default function AnnotatePage({ params }: Props) {
     if (currentImage) {
       loadAnnotations();
       initializeSam();
+      loadImage();  // 이미지 로드 분리
     }
   }, [currentImage?.id]);
 
+  // 이미지가 로드된 후에만 캔버스 그리기
   useEffect(() => {
-    drawCanvas();
-  }, [currentImage, annotations, currentPoints, samPendingMasks, zoom, panOffset, selectedAnnotationId]);
+    if (imageRef.current && imageRef.current.complete) {
+      drawCanvas();
+    }
+  }, [annotations, currentPoints, samPendingMasks, zoom, panOffset, selectedAnnotationId]);
+
+  // 이미지 로드 함수 (한 번만 로드하고 캐싱)
+  const loadImage = useCallback(() => {
+    if (!currentImage) return;
+
+    const imageUrl = `http://localhost:8000${currentImage.url || `/uploads/${projectId}/${currentImage.filename}`}`;
+
+    // 이미 같은 이미지가 로드되어 있으면 스킵
+    if (imageLoadedRef.current === imageUrl && imageRef.current) {
+      drawCanvas();
+      return;
+    }
+
+    const img = new window.Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      imageRef.current = img;
+      imageLoadedRef.current = imageUrl;
+      drawCanvas();
+    };
+  }, [currentImage, projectId]);
 
   const loadData = async () => {
     try {
@@ -185,61 +212,64 @@ export default function AnnotatePage({ params }: Props) {
     }
   };
 
-  const drawCanvas = () => {
+  const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || !currentImage) return;
+    const img = imageRef.current;
 
-    const img = new window.Image();
-    img.src = `http://localhost:8000${currentImage.url || `/uploads/${projectId}/${currentImage.filename}`}`;
-    img.onload = () => {
+    // 캐시된 이미지가 없으면 그리지 않음
+    if (!canvas || !ctx || !img || !currentImage) return;
+
+    // 캔버스 크기 설정 (이미지 크기와 동일)
+    if (canvas.width !== img.width || canvas.height !== img.height) {
       canvas.width = img.width;
       canvas.height = img.height;
+    }
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
+    // 캔버스 클리어 및 이미지 그리기
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
 
-      // Draw annotations
-      annotations.forEach((ann) => {
-        if (!ann.polygon) return;  // Skip if no polygon data
-        const cls = project?.classes.find((c) => c.id === ann.class_id);
-        const color = cls?.color || '#0071ff';
-        const isSelected = ann.id === selectedAnnotationId;
+    // Draw annotations
+    annotations.forEach((ann) => {
+      if (!ann.polygon) return;
+      const cls = project?.classes.find((c) => c.id === ann.class_id);
+      const color = cls?.color || '#0071ff';
+      const isSelected = ann.id === selectedAnnotationId;
 
-        drawPolygon(ctx, ann.polygon, color, isSelected);
+      drawPolygon(ctx, ann.polygon, color, isSelected);
+    });
+
+    // Draw pending SAM masks
+    samPendingMasks.forEach((mask) => {
+      const cls = project?.classes.find((c) => c.id === selectedClassId);
+      const color = cls?.color || '#0071ff';
+      drawPolygon(ctx, mask.polygon, color, false, 0.4);
+    });
+
+    // Draw current drawing points
+    if (currentPoints.length > 0) {
+      const cls = project?.classes.find((c) => c.id === selectedClassId);
+      const color = cls?.color || '#0071ff';
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(currentPoints[0][0], currentPoints[0][1]);
+      currentPoints.forEach((point) => {
+        ctx.lineTo(point[0], point[1]);
       });
+      ctx.stroke();
 
-      // Draw pending SAM masks
-      samPendingMasks.forEach((mask, index) => {
-        const cls = project?.classes.find((c) => c.id === selectedClassId);
-        const color = cls?.color || '#0071ff';
-        drawPolygon(ctx, mask.polygon, color, false, 0.4);
-      });
-
-      // Draw current drawing points
-      if (currentPoints.length > 0) {
-        const cls = project?.classes.find((c) => c.id === selectedClassId);
-        const color = cls?.color || '#0071ff';
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
+      // Draw points
+      currentPoints.forEach((point) => {
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(currentPoints[0][0], currentPoints[0][1]);
-        currentPoints.forEach((point) => {
-          ctx.lineTo(point[0], point[1]);
-        });
-        ctx.stroke();
-
-        // Draw points
-        currentPoints.forEach((point) => {
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.arc(point[0], point[1], 4, 0, Math.PI * 2);
-          ctx.fill();
-        });
-      }
-    };
-  };
+        ctx.arc(point[0], point[1], 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }, [currentImage, annotations, currentPoints, samPendingMasks, selectedAnnotationId, selectedClassId, project]);
 
   const drawPolygon = (
     ctx: CanvasRenderingContext2D,
