@@ -312,8 +312,11 @@ class SAM3Service:
         """Process SAM3 state into response format.
 
         SAM3 returns results in the state dictionary after calling prompt methods.
-        - masks: Boolean masks (thresholded at 0.5)
-        - masks_logits: Float probability values
+        Note: SAM3's _forward_grounding applies interpolate().sigmoid() before storing,
+        so both masks and masks_logits are already in 0~1 range.
+
+        - masks: Boolean/binary masks (masks_logits > 0.5)
+        - masks_logits: Probability values after sigmoid (0~1 range, already interpolated to original size)
         - boxes: [x0, y0, x1, y1] in original image coordinates
         - scores: Confidence scores
         """
@@ -324,8 +327,19 @@ class SAM3Service:
             # 디버깅: SAM3 state 키 확인
             logger.info(f"SAM3 state keys: {list(state.keys()) if isinstance(state, dict) else type(state)}")
 
-            # masks_logits 사용 (확률값), masks가 없으면 masks 사용
-            masks = state.get("masks_logits", state.get("masks", None))
+            # SAM3 masks 처리:
+            # - masks: boolean masks (이미 > 0.5 threshold 적용됨)
+            # - masks_logits: sigmoid 적용 후의 확률값 (0~1 범위, interpolate().sigmoid())
+            # 둘 다 이미 sigmoid가 적용되어 있으므로 추가 sigmoid 불필요
+            masks = state.get("masks", None)
+            masks_logits = state.get("masks_logits", None)
+
+            if masks is None and masks_logits is not None:
+                masks = masks_logits
+                logger.info("Using masks_logits (already sigmoid applied, 0~1 range)")
+            elif masks is not None:
+                logger.info("Using masks (already thresholded boolean)")
+
             boxes = state.get("boxes", None)
             scores = state.get("scores", None)
 
@@ -435,21 +449,51 @@ class SAM3Service:
         if mask.ndim == 3:
             mask = mask.squeeze()
 
-        binary_mask = (mask > 0.5).astype(np.uint8)
+        # 마스크 값 범위 확인
+        mask_min, mask_max = mask.min(), mask.max()
+        logger.debug(f"Mask value range: {mask_min:.4f} ~ {mask_max:.4f}")
+
+        # 마스크가 이미 binary (0/1 또는 True/False)인 경우
+        if mask_max <= 1.0:
+            binary_mask = (mask > 0.5).astype(np.uint8)
+        else:
+            # 마스크가 0-255 범위인 경우
+            binary_mask = (mask > 127).astype(np.uint8)
+
+        # binary_mask에서 positive pixel 수 확인
+        positive_pixels = np.sum(binary_mask)
+        logger.debug(f"Binary mask positive pixels: {positive_pixels}")
+
+        if positive_pixels == 0:
+            logger.warning("Mask has no positive pixels after thresholding")
+            return []
+
         contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if not contours:
+            logger.warning("No contours found in binary mask")
             return []
 
+        logger.debug(f"Found {len(contours)} contours")
+
         largest = max(contours, key=cv2.contourArea)
+        largest_area = cv2.contourArea(largest)
+        logger.debug(f"Largest contour area: {largest_area}, points: {len(largest)}")
+
+        if largest_area < 10:
+            logger.warning(f"Largest contour area too small: {largest_area}")
+            return []
 
         # 폴리곤 단순화 - epsilon을 작게 해서 더 많은 점 유지
-        epsilon = 0.001 * cv2.arcLength(largest, True)
+        perimeter = cv2.arcLength(largest, True)
+        epsilon = 0.001 * perimeter
         approx = cv2.approxPolyDP(largest, epsilon, True)
+
+        logger.debug(f"After simplification: {len(approx)} points (epsilon={epsilon:.4f}, perimeter={perimeter:.2f})")
 
         # 단순화 후에도 최소 3개 점 필요
         if len(approx) < 3:
-            # 단순화가 너무 과도하면 원본 contour 사용
+            logger.warning(f"Simplified polygon has only {len(approx)} points, using original contour")
             approx = largest
 
         polygon = approx.squeeze().tolist()
@@ -460,8 +504,10 @@ class SAM3Service:
 
         # 여전히 3개 미만이면 빈 배열 반환
         if len(polygon) < 3:
+            logger.warning(f"Final polygon has only {len(polygon)} points, returning empty")
             return []
 
+        logger.debug(f"Final polygon has {len(polygon)} points")
         return polygon
 
     def _mask_to_bbox(self, mask: np.ndarray) -> List[int]:
