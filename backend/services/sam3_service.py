@@ -302,9 +302,14 @@ class SAM3Service:
     def _process_sam3_result(self, result: Dict) -> Dict[str, Any]:
         """Process SAM3 result into response format."""
         try:
+            # 디버깅: SAM3 결과 키 확인
+            logger.info(f"SAM3 result keys: {result.keys() if isinstance(result, dict) else type(result)}")
+
             masks = result.get("masks", result.get("pred_masks", []))
             boxes = result.get("boxes", result.get("pred_boxes", []))
             scores = result.get("scores", result.get("pred_scores", []))
+
+            logger.info(f"Found {len(masks) if masks is not None else 0} masks")
 
             if masks is None or len(masks) == 0:
                 return {"masks": [], "count": 0}
@@ -317,7 +322,11 @@ class SAM3Service:
                 if isinstance(mask, torch.Tensor):
                     mask = mask.cpu().numpy()
 
+                # 디버깅: 마스크 정보 출력
+                logger.info(f"Mask {i} shape: {mask.shape}, dtype: {mask.dtype}, min: {mask.min()}, max: {mask.max()}")
+
                 polygon = self._mask_to_polygon(mask)
+                logger.info(f"Mask {i} polygon points: {len(polygon)}")
 
                 if boxes is not None and i < len(boxes):
                     bbox = boxes[i]
