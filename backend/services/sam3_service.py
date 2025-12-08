@@ -5,8 +5,6 @@ from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
-import io
-import base64
 
 from app.config import settings
 
@@ -19,36 +17,27 @@ class SAM3Service:
     def __init__(self):
         self._model = None
         self._processor = None
-        self._video_predictor = None
         self._is_loaded = False
         self._current_image = None
         self._current_state = None
+        self._image_size = None  # (width, height)
 
     @property
     def is_loaded(self) -> bool:
         return self._is_loaded
 
     def load_model(self, checkpoint: Optional[str] = None) -> bool:
-        """Load the SAM3 model.
-
-        Supports loading from:
-        1. Custom checkpoint path (if provided)
-        2. Local path (SAM3_LOCAL_PATH environment variable)
-        3. HuggingFace (default, requires HF_TOKEN)
-        """
+        """Load the SAM3 model."""
         try:
             # Add local SAM3 path to Python path if configured
             local_path = settings.SAM3_LOCAL_PATH
             if local_path:
                 local_path = Path(local_path)
                 if local_path.exists():
-                    # Add to Python path for importing
                     sam3_path = str(local_path)
                     if sam3_path not in sys.path:
                         sys.path.insert(0, sam3_path)
                     logger.info(f"Using local SAM3 from: {sam3_path}")
-                else:
-                    logger.warning(f"SAM3_LOCAL_PATH does not exist: {local_path}")
 
             # Import SAM3 modules
             from sam3.model_builder import build_sam3_image_model
@@ -56,27 +45,18 @@ class SAM3Service:
 
             logger.info("Loading SAM3 model...")
 
-            # Determine checkpoint to use
             model_checkpoint = checkpoint or settings.SAM3_CHECKPOINT
-
-            # If local path is set and has model files, use it
-            if local_path and local_path.exists():
-                # Check for common model file patterns
-                model_files = list(local_path.glob("*.pt")) + list(local_path.glob("*.pth")) + list(local_path.glob("*.bin"))
-                if model_files and not model_checkpoint:
-                    model_checkpoint = str(model_files[0])
-                    logger.info(f"Found model checkpoint: {model_checkpoint}")
+            device = settings.DEVICE
 
             # Build the model
             if model_checkpoint:
-                logger.info(f"Loading model from checkpoint: {model_checkpoint}")
-                self._model = build_sam3_image_model(checkpoint=model_checkpoint, device=settings.DEVICE)
+                logger.info(f"Loading from checkpoint: {model_checkpoint}")
+                self._model = build_sam3_image_model(checkpoint=model_checkpoint, device=device)
             else:
-                logger.info("Loading model from default/HuggingFace")
-                self._model = build_sam3_image_model(device=settings.DEVICE)
+                self._model = build_sam3_image_model(device=device)
 
             # Create processor
-            self._processor = Sam3Processor(self._model)
+            self._processor = Sam3Processor(self._model, device=device)
 
             self._is_loaded = True
             logger.info("SAM3 model loaded successfully")
@@ -100,13 +80,15 @@ class SAM3Service:
         """Set the current image for segmentation."""
         self.ensure_loaded()
 
+        self._current_image = image
+        self._image_size = image.size  # (width, height)
+
         if self._processor:
-            self._current_image = image
-            self._current_state = self._processor.set_image(image)
+            image_np = np.array(image)
+            self._current_state = self._processor.set_image(image_np)
             return {"status": "success", "image_size": image.size}
 
-        # Mock mode - return simulated state
-        self._current_image = image
+        # Mock mode
         return {"status": "success", "image_size": image.size, "mode": "mock"}
 
     def segment_with_text(self, prompt: str) -> Dict[str, Any]:
@@ -115,17 +97,14 @@ class SAM3Service:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
-            output = self._processor.set_text_prompt(
-                state=self._current_state,
-                prompt=prompt
-            )
-            masks = output["masks"]
-            boxes = output["boxes"]
-            scores = output["scores"]
+            try:
+                self._processor.reset_all_prompts(self._current_state)
+                result = self._processor.set_text_prompt(prompt, self._current_state)
+                return self._process_sam3_result(result)
+            except Exception as e:
+                logger.error(f"Text segmentation error: {e}")
+                return {"error": str(e)}
 
-            return self._process_masks(masks, boxes, scores)
-
-        # Mock mode - return simulated segmentation
         return self._mock_segmentation(prompt)
 
     def segment_with_points(
@@ -133,142 +112,138 @@ class SAM3Service:
         points: List[Tuple[int, int]],
         labels: List[int]
     ) -> Dict[str, Any]:
-        """Segment image using point prompts.
-
-        Args:
-            points: List of (x, y) coordinates
-            labels: List of labels (1 for foreground, 0 for background)
-        """
+        """Segment using point prompts (converted to small boxes)."""
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
-            import torch
-            points_tensor = torch.tensor(points, dtype=torch.float32)
-            labels_tensor = torch.tensor(labels, dtype=torch.int32)
+            try:
+                self._processor.reset_all_prompts(self._current_state)
 
-            output = self._processor.set_point_prompt(
-                state=self._current_state,
-                points=points_tensor,
-                labels=labels_tensor
-            )
+                width, height = self._image_size
+                result = None
 
-            masks = output["masks"]
-            boxes = output["boxes"]
-            scores = output["scores"]
+                for (x, y), label in zip(points, labels):
+                    box_size = 0.02  # 2% of image
+                    center_x = x / width
+                    center_y = y / height
+                    box = [center_x, center_y, box_size, box_size]
+                    is_positive = label == 1
+                    result = self._processor.add_geometric_prompt(box, is_positive, self._current_state)
 
-            return self._process_masks(masks, boxes, scores)
+                if result:
+                    return self._process_sam3_result(result)
+                return {"masks": [], "count": 0}
 
-        # Mock mode
+            except Exception as e:
+                logger.error(f"Point segmentation error: {e}")
+                return {"error": str(e)}
+
         return self._mock_segmentation(f"points_{len(points)}")
 
     def segment_with_box(self, box: Tuple[int, int, int, int]) -> Dict[str, Any]:
-        """Segment image using bounding box prompt.
-
-        Args:
-            box: (x1, y1, x2, y2) coordinates
-        """
+        """Segment using bounding box prompt."""
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
-            import torch
-            box_tensor = torch.tensor([box], dtype=torch.float32)
+            try:
+                self._processor.reset_all_prompts(self._current_state)
 
-            output = self._processor.set_box_prompt(
-                state=self._current_state,
-                boxes=box_tensor
-            )
+                width, height = self._image_size
+                x1, y1, x2, y2 = box
 
-            masks = output["masks"]
-            boxes = output["boxes"]
-            scores = output["scores"]
+                center_x = ((x1 + x2) / 2) / width
+                center_y = ((y1 + y2) / 2) / height
+                box_width = abs(x2 - x1) / width
+                box_height = abs(y2 - y1) / height
 
-            return self._process_masks(masks, boxes, scores)
+                normalized_box = [center_x, center_y, box_width, box_height]
+                result = self._processor.add_geometric_prompt(normalized_box, True, self._current_state)
 
-        # Mock mode
+                return self._process_sam3_result(result)
+
+            except Exception as e:
+                logger.error(f"Box segmentation error: {e}")
+                return {"error": str(e)}
+
         return self._mock_segmentation(f"box_{box}")
 
     def segment_auto(self) -> Dict[str, Any]:
-        """Automatic segmentation of all objects in image."""
+        """Automatic segmentation."""
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
-        if self._processor and self._current_state:
-            output = self._processor.auto_segment(state=self._current_state)
-            masks = output["masks"]
-            boxes = output["boxes"]
-            scores = output["scores"]
+        return self.segment_with_text("all objects")
 
-            return self._process_masks(masks, boxes, scores)
+    def _process_sam3_result(self, result: Dict) -> Dict[str, Any]:
+        """Process SAM3 result into response format."""
+        try:
+            masks = result.get("masks", result.get("pred_masks", []))
+            boxes = result.get("boxes", result.get("pred_boxes", []))
+            scores = result.get("scores", result.get("pred_scores", []))
 
-        # Mock mode
-        return self._mock_segmentation("auto")
+            if masks is None or len(masks) == 0:
+                return {"masks": [], "count": 0}
 
-    def _process_masks(
-        self,
-        masks: Any,
-        boxes: Any,
-        scores: Any
-    ) -> Dict[str, Any]:
-        """Process masks into a serializable format."""
-        import torch
+            import torch
+            masks_data = []
 
-        results = []
+            for i in range(len(masks)):
+                mask = masks[i]
+                if isinstance(mask, torch.Tensor):
+                    mask = mask.cpu().numpy()
 
-        if masks is None or len(masks) == 0:
-            return {"masks": [], "count": 0}
+                polygon = self._mask_to_polygon(mask)
 
-        for i in range(len(masks)):
-            mask = masks[i]
-            if isinstance(mask, torch.Tensor):
-                mask = mask.cpu().numpy()
+                if boxes is not None and i < len(boxes):
+                    bbox = boxes[i]
+                    if isinstance(bbox, torch.Tensor):
+                        bbox = bbox.cpu().numpy().tolist()
+                    if bbox and all(0 <= v <= 1 for v in bbox):
+                        width, height = self._image_size
+                        cx, cy, bw, bh = bbox
+                        bbox = [
+                            int((cx - bw/2) * width),
+                            int((cy - bh/2) * height),
+                            int(bw * width),
+                            int(bh * height)
+                        ]
+                else:
+                    bbox = self._mask_to_bbox(mask)
 
-            # Convert mask to polygon (simplified)
-            polygon = self._mask_to_polygon(mask)
+                score = float(scores[i]) if scores is not None and i < len(scores) else 1.0
+                area = int(np.sum(mask > 0.5)) if isinstance(mask, np.ndarray) else 0
 
-            # Convert mask to RLE
-            rle = self._mask_to_rle(mask)
+                masks_data.append({
+                    "id": i,
+                    "polygon": polygon,
+                    "bbox": bbox,
+                    "rle": "",
+                    "score": score,
+                    "area": area
+                })
 
-            # Get bounding box
-            bbox = boxes[i] if boxes is not None else self._mask_to_bbox(mask)
-            if isinstance(bbox, torch.Tensor):
-                bbox = bbox.cpu().numpy().tolist()
+            return {"masks": masks_data, "count": len(masks_data)}
 
-            score = float(scores[i]) if scores is not None else 1.0
-
-            results.append({
-                "id": i,
-                "polygon": polygon,
-                "bbox": bbox,
-                "rle": rle,
-                "score": score,
-                "area": int(np.sum(mask > 0.5))
-            })
-
-        return {"masks": results, "count": len(results)}
+        except Exception as e:
+            logger.error(f"Error processing SAM3 result: {e}")
+            return {"masks": [], "count": 0, "error": str(e)}
 
     def _mask_to_polygon(self, mask: np.ndarray) -> List[List[int]]:
-        """Convert binary mask to polygon coordinates."""
+        """Convert binary mask to polygon."""
         import cv2
 
         if mask.ndim == 3:
             mask = mask.squeeze()
 
         binary_mask = (mask > 0.5).astype(np.uint8)
-        contours, _ = cv2.findContours(
-            binary_mask,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if not contours:
             return []
 
-        # Get the largest contour
         largest = max(contours, key=cv2.contourArea)
-
-        # Simplify polygon
         epsilon = 0.005 * cv2.arcLength(largest, True)
         approx = cv2.approxPolyDP(largest, epsilon, True)
 
@@ -277,30 +252,6 @@ class SAM3Service:
             polygon = [polygon]
 
         return polygon
-
-    def _mask_to_rle(self, mask: np.ndarray) -> str:
-        """Convert binary mask to run-length encoding."""
-        if mask.ndim == 3:
-            mask = mask.squeeze()
-
-        pixels = (mask > 0.5).flatten()
-        runs = []
-        run_start = 0
-        run_length = 0
-
-        for i, pixel in enumerate(pixels):
-            if pixel:
-                if run_length == 0:
-                    run_start = i
-                run_length += 1
-            elif run_length > 0:
-                runs.append(f"{run_start},{run_length}")
-                run_length = 0
-
-        if run_length > 0:
-            runs.append(f"{run_start},{run_length}")
-
-        return "|".join(runs)
 
     def _mask_to_bbox(self, mask: np.ndarray) -> List[int]:
         """Convert binary mask to bounding box."""
@@ -319,28 +270,23 @@ class SAM3Service:
         return [int(x1), int(y1), int(x2 - x1), int(y2 - y1)]
 
     def _mock_segmentation(self, prompt: str) -> Dict[str, Any]:
-        """Return mock segmentation results for testing."""
+        """Return mock segmentation results."""
         if self._current_image is None:
             return {"masks": [], "count": 0}
 
         w, h = self._current_image.size
 
-        # Generate random mock masks
         import random
-        num_masks = random.randint(1, 5)
+        num_masks = random.randint(1, 3)
         results = []
 
         for i in range(num_masks):
-            # Random bounding box
             x1 = random.randint(0, w // 2)
             y1 = random.randint(0, h // 2)
             x2 = random.randint(x1 + 50, min(x1 + 200, w))
             y2 = random.randint(y1 + 50, min(y1 + 200, h))
 
-            # Create polygon from bbox
-            polygon = [
-                [x1, y1], [x2, y1], [x2, y2], [x1, y2]
-            ]
+            polygon = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
 
             results.append({
                 "id": i,
@@ -351,12 +297,7 @@ class SAM3Service:
                 "area": (x2 - x1) * (y2 - y1)
             })
 
-        return {
-            "masks": results,
-            "count": len(results),
-            "mode": "mock",
-            "prompt": prompt
-        }
+        return {"masks": results, "count": len(results), "mode": "mock", "prompt": prompt}
 
     def load_finetuned_model(self, checkpoint_path: str) -> bool:
         """Load a fine-tuned model checkpoint."""
