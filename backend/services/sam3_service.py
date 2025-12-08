@@ -299,22 +299,41 @@ class SAM3Service:
 
         return self.segment_with_text("all objects")
 
-    def _process_sam3_result(self, result: Dict) -> Dict[str, Any]:
-        """Process SAM3 result into response format."""
+    def _process_sam3_result(self, state: Dict) -> Dict[str, Any]:
+        """Process SAM3 state into response format.
+
+        SAM3 returns results in the state dictionary after calling prompt methods.
+        Masks may be at internal resolution (1008x1008) and need to be scaled.
+        """
         try:
-            # 디버깅: SAM3 결과 키 확인
-            logger.info(f"SAM3 result keys: {result.keys() if isinstance(result, dict) else type(result)}")
+            import torch
+            import cv2
 
-            masks = result.get("masks", result.get("pred_masks", []))
-            boxes = result.get("boxes", result.get("pred_boxes", []))
-            scores = result.get("scores", result.get("pred_scores", []))
+            # 디버깅: SAM3 state 키 확인
+            logger.info(f"SAM3 state keys: {state.keys() if isinstance(state, dict) else type(state)}")
 
-            logger.info(f"Found {len(masks) if masks is not None else 0} masks")
+            masks = state.get("masks", state.get("pred_masks", None))
+            boxes = state.get("boxes", state.get("pred_boxes", None))
+            scores = state.get("scores", state.get("pred_scores", None))
 
-            if masks is None or len(masks) == 0:
+            # 원본 이미지 크기 가져오기
+            orig_h = state.get("original_height", self._image_size[1] if self._image_size else None)
+            orig_w = state.get("original_width", self._image_size[0] if self._image_size else None)
+
+            logger.info(f"Original image size: {orig_w}x{orig_h}")
+
+            if masks is None:
+                logger.warning("No masks in state")
                 return {"masks": [], "count": 0}
 
-            import torch
+            # masks가 텐서인 경우 처리
+            if isinstance(masks, torch.Tensor):
+                masks = masks.cpu().numpy()
+                logger.info(f"Masks tensor shape: {masks.shape}")
+
+            if len(masks) == 0:
+                return {"masks": [], "count": 0}
+
             masks_data = []
 
             for i in range(len(masks)):
@@ -322,8 +341,19 @@ class SAM3Service:
                 if isinstance(mask, torch.Tensor):
                     mask = mask.cpu().numpy()
 
+                # 마스크 shape 처리: [1, H, W] -> [H, W]
+                if mask.ndim == 3:
+                    mask = mask.squeeze(0) if mask.shape[0] == 1 else mask.squeeze()
+
                 # 디버깅: 마스크 정보 출력
-                logger.info(f"Mask {i} shape: {mask.shape}, dtype: {mask.dtype}, min: {mask.min()}, max: {mask.max()}")
+                logger.info(f"Mask {i} shape: {mask.shape}, dtype: {mask.dtype}, min: {mask.min():.4f}, max: {mask.max():.4f}")
+
+                mask_h, mask_w = mask.shape
+
+                # 마스크가 원본 이미지 크기와 다르면 리사이즈
+                if orig_h and orig_w and (mask_h != orig_h or mask_w != orig_w):
+                    logger.info(f"Resizing mask from {mask_w}x{mask_h} to {orig_w}x{orig_h}")
+                    mask = cv2.resize(mask.astype(np.float32), (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
 
                 polygon = self._mask_to_polygon(mask)
                 logger.info(f"Mask {i} polygon points: {len(polygon)}")
