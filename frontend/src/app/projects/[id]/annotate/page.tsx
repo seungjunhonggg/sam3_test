@@ -19,6 +19,8 @@ import {
   ScrollArea,
   Divider,
   Badge,
+  Slider,
+  Switch,
 } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -39,6 +41,10 @@ import {
   IconZoomReset,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconPaint,
+  IconEraser,
+  IconEye,
+  IconEyeOff,
 } from '@tabler/icons-react';
 import { projectsApi, imagesApi, annotationsApi, segmentationApi, type Project, type Image, type Annotation, type AnnotationCreate, type ClassConfig, type SegmentationResult } from '@/lib/api';
 import { useAnnotationStore, type Tool } from '@/lib/store';
@@ -53,6 +59,8 @@ const TOOLS: { id: Tool; icon: typeof IconPointer; label: string; shortcut: stri
   { id: 'polygon', icon: IconPolygon, label: '폴리곤', shortcut: 'P' },
   { id: 'bbox', icon: IconSquare, label: '바운딩 박스', shortcut: 'B' },
   { id: 'brush', icon: IconBrush, label: '브러시', shortcut: 'R' },
+  { id: 'mask_paint', icon: IconPaint, label: '마스크 페인트', shortcut: 'M' },
+  { id: 'mask_erase', icon: IconEraser, label: '마스크 지우개', shortcut: 'E' },
   { id: 'sam_point', icon: IconSparkles, label: 'SAM3 포인트', shortcut: 'S' },
   { id: 'sam_box', icon: IconSparkles, label: 'SAM3 박스', shortcut: 'X' },
   { id: 'sam_text', icon: IconMessageCircle, label: 'SAM3 텍스트', shortcut: 'T' },
@@ -66,9 +74,11 @@ export default function AnnotatePage({ params }: Props) {
   const initialImageId = searchParams.get('image');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null);  // 마스크 편집용 캔버스
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);  // 이미지 캐싱용
   const imageLoadedRef = useRef<string | null>(null);  // 현재 로드된 이미지 URL 추적
+  const lastPaintPosRef = useRef<{ x: number; y: number } | null>(null);  // 마스크 페인팅용
 
   const [project, setProject] = useState<Project | null>(null);
   const [images, setImages] = useState<Image[]>([]);
@@ -99,6 +109,18 @@ export default function AnnotatePage({ params }: Props) {
     samPendingMasks,
     setSamPendingMasks,
     clearSamPending,
+    // Mask painting
+    classMasks,
+    brushSize,
+    maskEditMode,
+    initClassMasks,
+    setClassMask,
+    setClassMaskVisibility,
+    setClassMaskOpacity,
+    setBrushSize,
+    setMaskEditMode,
+    clearClassMask,
+    clearAllMasks,
     zoom,
     setZoom,
     panOffset,
@@ -116,6 +138,8 @@ export default function AnnotatePage({ params }: Props) {
     ['p', () => setActiveTool('polygon')],
     ['b', () => setActiveTool('bbox')],
     ['r', () => setActiveTool('brush')],
+    ['m', () => setActiveTool('mask_paint')],
+    ['e', () => setActiveTool('mask_erase')],
     ['s', () => setActiveTool('sam_point')],
     ['x', () => setActiveTool('sam_box')],
     ['t', () => setActiveTool('sam_text')],
@@ -125,6 +149,8 @@ export default function AnnotatePage({ params }: Props) {
     ['mod+shift+z', () => redo()],
     ['ArrowLeft', () => goToPreviousImage()],
     ['ArrowRight', () => goToNextImage()],
+    ['[', () => setBrushSize(brushSize - 5)],  // 브러시 크기 감소
+    [']', () => setBrushSize(brushSize + 5)],  // 브러시 크기 증가
   ]);
 
   useEffect(() => {
@@ -163,9 +189,21 @@ export default function AnnotatePage({ params }: Props) {
     img.onload = () => {
       imageRef.current = img;
       imageLoadedRef.current = imageUrl;
+
+      // 마스크 캔버스 초기화
+      if (maskCanvasRef.current) {
+        maskCanvasRef.current.width = img.width;
+        maskCanvasRef.current.height = img.height;
+      }
+
+      // 클래스별 마스크 초기화
+      if (project?.classes) {
+        initClassMasks(project.classes, img.width, img.height);
+      }
+
       drawCanvas();
     };
-  }, [currentImage, projectId]);
+  }, [currentImage, projectId, project?.classes, initClassMasks]);
 
   const loadData = async () => {
     try {
@@ -301,7 +339,40 @@ export default function AnnotatePage({ params }: Props) {
       );
       ctx.setLineDash([]);  // 점선 해제
     }
-  }, [currentImage, annotations, currentPoints, samPendingMasks, selectedAnnotationId, selectedClassId, project, activeTool, mousePos, dragStart]);
+
+    // 클래스별 마스크 오버레이 그리기
+    classMasks.forEach((mask) => {
+      if (!mask.visible || !mask.imageData) return;
+
+      // 임시 캔버스에 마스크 그리기
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = img.width;
+      tempCanvas.height = img.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) return;
+
+      tempCtx.putImageData(mask.imageData, 0, 0);
+
+      // 마스크를 메인 캔버스에 오버레이
+      ctx.globalAlpha = mask.opacity;
+      ctx.drawImage(tempCanvas, 0, 0);
+      ctx.globalAlpha = 1;
+    });
+
+    // 마스크 페인트/지우개 도구일 때 브러시 커서 미리보기
+    if ((activeTool === 'mask_paint' || activeTool === 'mask_erase') && mousePos) {
+      const cls = project?.classes.find((c) => c.id === selectedClassId);
+      const color = activeTool === 'mask_paint' ? (cls?.color || '#0071ff') : '#ff0000';
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(mousePos[0], mousePos[1], brushSize / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }, [currentImage, annotations, currentPoints, samPendingMasks, selectedAnnotationId, selectedClassId, project, activeTool, mousePos, dragStart, classMasks, brushSize]);
 
   const drawPolygon = (
     ctx: CanvasRenderingContext2D,
@@ -325,6 +396,87 @@ export default function AnnotatePage({ params }: Props) {
     ctx.fill();
     ctx.stroke();
   };
+
+  // 마스크에 원형 브러시 그리기 (페인트 또는 지우기)
+  const paintOnMask = useCallback((x: number, y: number, erase: boolean = false) => {
+    if (selectedClassId === null || !imageRef.current) return;
+
+    const img = imageRef.current;
+    const width = img.width;
+    const height = img.height;
+
+    // 현재 클래스의 마스크 가져오기
+    const existingMask = classMasks.get(selectedClassId);
+    if (!existingMask) return;
+
+    // ImageData가 없으면 새로 생성
+    let imageData = existingMask.imageData;
+    if (!imageData) {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) return;
+      imageData = tempCtx.createImageData(width, height);
+    }
+
+    // 클래스 색상을 RGB로 변환
+    const hexColor = existingMask.color;
+    const r = parseInt(hexColor.slice(1, 3), 16);
+    const g = parseInt(hexColor.slice(3, 5), 16);
+    const b = parseInt(hexColor.slice(5, 7), 16);
+
+    const radius = brushSize / 2;
+    const radiusSquared = radius * radius;
+
+    // 브러시 영역 내의 픽셀 업데이트
+    const startX = Math.max(0, Math.floor(x - radius));
+    const endX = Math.min(width - 1, Math.ceil(x + radius));
+    const startY = Math.max(0, Math.floor(y - radius));
+    const endY = Math.min(height - 1, Math.ceil(y + radius));
+
+    const data = imageData.data;
+
+    for (let py = startY; py <= endY; py++) {
+      for (let px = startX; px <= endX; px++) {
+        const dx = px - x;
+        const dy = py - y;
+        if (dx * dx + dy * dy <= radiusSquared) {
+          const idx = (py * width + px) * 4;
+          if (erase) {
+            // 지우기: 완전 투명
+            data[idx] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+            data[idx + 3] = 0;
+          } else {
+            // 페인트: 클래스 색상으로 칠하기
+            data[idx] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+
+    // 마스크 업데이트
+    setClassMask(selectedClassId, imageData);
+  }, [selectedClassId, classMasks, brushSize, setClassMask]);
+
+  // 두 점 사이를 선으로 연결하며 페인트
+  const paintLine = useCallback((x1: number, y1: number, x2: number, y2: number, erase: boolean = false) => {
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.abs(y2 - y1);
+    const steps = Math.max(dx, dy, 1);
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = Math.round(x1 + (x2 - x1) * t);
+      const y = Math.round(y1 + (y2 - y1) * t);
+      paintOnMask(x, y, erase);
+    }
+  }, [paintOnMask]);
 
   const handleCanvasClick = async (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -394,6 +546,12 @@ export default function AnnotatePage({ params }: Props) {
       // 브러시: 드래그 시작
       setCurrentPoints([[x, y]]);
       setIsDrawing(true);
+    } else if (activeTool === 'mask_paint' || activeTool === 'mask_erase') {
+      // 마스크 페인팅 시작
+      const erase = activeTool === 'mask_erase';
+      paintOnMask(x, y, erase);
+      lastPaintPosRef.current = { x, y };
+      setIsDrawing(true);
     }
   };
 
@@ -414,9 +572,25 @@ export default function AnnotatePage({ params }: Props) {
     if (activeTool === 'brush' && isDrawing) {
       addPoint([x, y]);
     }
+
+    // 마스크 페인팅 드래그
+    if ((activeTool === 'mask_paint' || activeTool === 'mask_erase') && isDrawing) {
+      const erase = activeTool === 'mask_erase';
+      if (lastPaintPosRef.current) {
+        paintLine(lastPaintPosRef.current.x, lastPaintPosRef.current.y, x, y, erase);
+      }
+      lastPaintPosRef.current = { x, y };
+    }
   };
 
   const handleCanvasMouseUp = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // 마스크 페인팅 종료
+    if ((activeTool === 'mask_paint' || activeTool === 'mask_erase') && isDrawing) {
+      lastPaintPosRef.current = null;
+      setIsDrawing(false);
+      return;
+    }
+
     // 브러시 도구 완료
     if (activeTool === 'brush' && isDrawing && currentPoints.length >= 3) {
       await saveAnnotation(currentPoints, 'polygon');
@@ -747,6 +921,31 @@ export default function AnnotatePage({ params }: Props) {
             </Box>
           )}
 
+          {/* 마스크 도구 브러시 크기 조절 바 */}
+          {(activeTool === 'mask_paint' || activeTool === 'mask_erase') && (
+            <Paper className={classes.textPromptBar} shadow="sm" p="sm">
+              <Group gap="md">
+                <Text size="sm" fw={500}>브러시 크기:</Text>
+                <Slider
+                  value={brushSize}
+                  onChange={setBrushSize}
+                  min={1}
+                  max={100}
+                  step={1}
+                  style={{ flex: 1, minWidth: 150 }}
+                  marks={[
+                    { value: 10, label: '10' },
+                    { value: 50, label: '50' },
+                    { value: 100, label: '100' },
+                  ]}
+                />
+                <Text size="sm" w={40}>{brushSize}px</Text>
+                <Divider orientation="vertical" />
+                <Text size="xs" c="dimmed">[ ] 키로 조절</Text>
+              </Group>
+            </Paper>
+          )}
+
           {activeTool === 'sam_text' && (
             <Paper className={classes.textPromptBar} shadow="sm" p="sm">
               <Group gap="sm">
@@ -823,6 +1022,81 @@ export default function AnnotatePage({ params }: Props) {
                       </Group>
                     </Paper>
                   ))}
+                </Stack>
+              </Box>
+
+              <Divider />
+
+              {/* 마스크 레이어 */}
+              <Box>
+                <Group justify="space-between" mb="sm">
+                  <Text size="sm" fw={600}>마스크 레이어</Text>
+                  <Button
+                    variant="subtle"
+                    size="xs"
+                    color="red"
+                    onClick={clearAllMasks}
+                  >
+                    모두 지우기
+                  </Button>
+                </Group>
+                <Stack gap="xs">
+                  {project?.classes.map((cls) => {
+                    const mask = classMasks.get(cls.id);
+                    const hasMask = mask?.imageData !== null && mask?.imageData !== undefined;
+                    return (
+                      <Paper
+                        key={cls.id}
+                        p="xs"
+                        radius="md"
+                        withBorder
+                        style={{ opacity: mask?.visible ? 1 : 0.5 }}
+                      >
+                        <Stack gap="xs">
+                          <Group justify="space-between">
+                            <Group gap="sm">
+                              <ColorSwatch color={cls.color} size={12} />
+                              <Text size="xs">{cls.name}</Text>
+                              {hasMask && (
+                                <Badge size="xs" variant="light" color="green">
+                                  마스크
+                                </Badge>
+                              )}
+                            </Group>
+                            <Group gap="xs">
+                              <ActionIcon
+                                variant="subtle"
+                                size="xs"
+                                onClick={() => setClassMaskVisibility(cls.id, !mask?.visible)}
+                              >
+                                {mask?.visible ? <IconEye size={14} /> : <IconEyeOff size={14} />}
+                              </ActionIcon>
+                              {hasMask && (
+                                <ActionIcon
+                                  variant="subtle"
+                                  color="red"
+                                  size="xs"
+                                  onClick={() => clearClassMask(cls.id)}
+                                >
+                                  <IconTrash size={14} />
+                                </ActionIcon>
+                              )}
+                            </Group>
+                          </Group>
+                          {hasMask && mask?.visible && (
+                            <Slider
+                              value={(mask?.opacity || 0.5) * 100}
+                              onChange={(val) => setClassMaskOpacity(cls.id, val / 100)}
+                              min={10}
+                              max={100}
+                              size="xs"
+                              label={(val) => `${val}%`}
+                            />
+                          )}
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
                 </Stack>
               </Box>
 

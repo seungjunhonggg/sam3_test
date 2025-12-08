@@ -3,7 +3,17 @@
 import { create } from 'zustand';
 import type { Project, Image, Annotation, SegmentationResult, ClassConfig } from './api';
 
-export type Tool = 'select' | 'polygon' | 'bbox' | 'brush' | 'sam_point' | 'sam_box' | 'sam_text';
+export type Tool = 'select' | 'polygon' | 'bbox' | 'brush' | 'sam_point' | 'sam_box' | 'sam_text' | 'mask_paint' | 'mask_erase';
+
+// 클래스별 마스크 데이터
+export interface ClassMask {
+  classId: number;
+  className: string;
+  color: string;
+  imageData: ImageData | null;  // 바이너리 마스크 데이터
+  visible: boolean;
+  opacity: number;
+}
 
 interface AnnotationState {
   // Current state
@@ -21,6 +31,11 @@ interface AnnotationState {
   // SAM3 state
   samPendingMasks: SegmentationResult[];
   samTextPrompt: string;
+
+  // Mask painting state (Paint.NET style)
+  classMasks: Map<number, ClassMask>;  // classId -> ClassMask
+  brushSize: number;
+  maskEditMode: boolean;  // 마스크 편집 모드 활성화 여부
 
   // Canvas state
   zoom: number;
@@ -50,6 +65,16 @@ interface AnnotationState {
   setSamTextPrompt: (prompt: string) => void;
   clearSamPending: () => void;
 
+  // Mask painting actions
+  initClassMasks: (classes: { id: number; name: string; color: string }[], width: number, height: number) => void;
+  setClassMask: (classId: number, imageData: ImageData) => void;
+  setClassMaskVisibility: (classId: number, visible: boolean) => void;
+  setClassMaskOpacity: (classId: number, opacity: number) => void;
+  setBrushSize: (size: number) => void;
+  setMaskEditMode: (enabled: boolean) => void;
+  clearClassMask: (classId: number) => void;
+  clearAllMasks: () => void;
+
   setZoom: (zoom: number) => void;
   setPanOffset: (offset: { x: number; y: number }) => void;
   resetView: () => void;
@@ -73,6 +98,11 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
 
   samPendingMasks: [],
   samTextPrompt: '',
+
+  // Mask painting state
+  classMasks: new Map<number, ClassMask>(),
+  brushSize: 20,
+  maskEditMode: false,
 
   zoom: 1,
   panOffset: { x: 0, y: 0 },
@@ -122,6 +152,70 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   setSamPendingMasks: (masks) => set({ samPendingMasks: masks }),
   setSamTextPrompt: (prompt) => set({ samTextPrompt: prompt }),
   clearSamPending: () => set({ samPendingMasks: [], samTextPrompt: '' }),
+
+  // Mask painting actions
+  initClassMasks: (classes, width, height) => {
+    const newMasks = new Map<number, ClassMask>();
+    classes.forEach((cls) => {
+      newMasks.set(cls.id, {
+        classId: cls.id,
+        className: cls.name,
+        color: cls.color,
+        imageData: null,  // 처음에는 null, 필요할 때 생성
+        visible: true,
+        opacity: 0.5,
+      });
+    });
+    set({ classMasks: newMasks });
+  },
+
+  setClassMask: (classId, imageData) => {
+    const masks = new Map(get().classMasks);
+    const existing = masks.get(classId);
+    if (existing) {
+      masks.set(classId, { ...existing, imageData });
+      set({ classMasks: masks });
+    }
+  },
+
+  setClassMaskVisibility: (classId, visible) => {
+    const masks = new Map(get().classMasks);
+    const existing = masks.get(classId);
+    if (existing) {
+      masks.set(classId, { ...existing, visible });
+      set({ classMasks: masks });
+    }
+  },
+
+  setClassMaskOpacity: (classId, opacity) => {
+    const masks = new Map(get().classMasks);
+    const existing = masks.get(classId);
+    if (existing) {
+      masks.set(classId, { ...existing, opacity: Math.max(0, Math.min(1, opacity)) });
+      set({ classMasks: masks });
+    }
+  },
+
+  setBrushSize: (size) => set({ brushSize: Math.max(1, Math.min(200, size)) }),
+
+  setMaskEditMode: (enabled) => set({ maskEditMode: enabled }),
+
+  clearClassMask: (classId) => {
+    const masks = new Map(get().classMasks);
+    const existing = masks.get(classId);
+    if (existing) {
+      masks.set(classId, { ...existing, imageData: null });
+      set({ classMasks: masks });
+    }
+  },
+
+  clearAllMasks: () => {
+    const masks = new Map(get().classMasks);
+    masks.forEach((mask, classId) => {
+      masks.set(classId, { ...mask, imageData: null });
+    });
+    set({ classMasks: masks });
+  },
 
   setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(5, zoom)) }),
   setPanOffset: (offset) => set({ panOffset: offset }),
