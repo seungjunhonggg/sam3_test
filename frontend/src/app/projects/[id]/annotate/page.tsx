@@ -345,9 +345,19 @@ export default function AnnotatePage({ params }: Props) {
       case 'sam_point':
         setSamLoading(true);
         try {
-          const response = await segmentationApi.segmentPoints([{ x, y, label: 1 }]);
-          setSamPendingMasks(response.data.masks);
+          const response = await segmentationApi.segmentPoints([{ x, y, label: 1 }], currentImage.id);
+          console.log('SAM3 response:', response.data);
+          if (response.data.masks && response.data.masks.length > 0) {
+            setSamPendingMasks(response.data.masks);
+          } else {
+            notifications.show({
+              title: '알림',
+              message: '감지된 객체가 없습니다',
+              color: 'yellow',
+            });
+          }
         } catch (error) {
+          console.error('SAM3 error:', error);
           notifications.show({
             title: '오류',
             message: 'SAM3 세그멘테이션에 실패했습니다',
@@ -447,9 +457,19 @@ export default function AnnotatePage({ params }: Props) {
           y1: box[1],
           x2: box[2],
           y2: box[3]
-        });
-        setSamPendingMasks(response.data.masks);
+        }, currentImage.id);
+        console.log('SAM3 box response:', response.data);
+        if (response.data.masks && response.data.masks.length > 0) {
+          setSamPendingMasks(response.data.masks);
+        } else {
+          notifications.show({
+            title: '알림',
+            message: '감지된 객체가 없습니다',
+            color: 'yellow',
+          });
+        }
       } catch (error) {
+        console.error('SAM3 box error:', error);
         notifications.show({
           title: '오류',
           message: 'SAM3 세그멘테이션에 실패했습니다',
@@ -472,14 +492,24 @@ export default function AnnotatePage({ params }: Props) {
   };
 
   const handleTextSubmit = async () => {
-    if (!textPrompt.trim()) return;
+    if (!textPrompt.trim() || !currentImage) return;
 
     setSamLoading(true);
     try {
-      const response = await segmentationApi.segmentText(textPrompt);
-      setSamPendingMasks(response.data.masks);
+      const response = await segmentationApi.segmentText(textPrompt, currentImage.id);
+      console.log('SAM3 text response:', response.data);
+      if (response.data.masks && response.data.masks.length > 0) {
+        setSamPendingMasks(response.data.masks);
+      } else {
+        notifications.show({
+          title: '알림',
+          message: '감지된 객체가 없습니다',
+          color: 'yellow',
+        });
+      }
       setTextPrompt('');
     } catch (error) {
+      console.error('SAM3 text error:', error);
       notifications.show({
         title: '오류',
         message: 'SAM3 텍스트 세그멘테이션에 실패했습니다',
