@@ -43,11 +43,32 @@ export interface Image {
 export interface Annotation {
   id: number;
   image_id: number;
+  class_name: string;
   class_id: number;
-  polygon: number[][];
-  bbox: number[];
-  mask_rle?: string;
+  annotation_type: string;  // 'polygon' | 'bbox' | 'mask' | 'point'
+  polygon: number[][] | null;
+  bbox: number[] | null;
+  mask_rle?: string | null;
+  points?: number[][] | null;
+  area?: number | null;
+  confidence?: number | null;
+  is_auto_generated: boolean;
   created_at: string;
+  updated_at: string;
+}
+
+export interface AnnotationCreate {
+  image_id: number;
+  class_name: string;
+  class_id: number;
+  annotation_type: string;  // 'polygon' | 'bbox' | 'mask' | 'point'
+  polygon?: number[][] | null;
+  bbox?: number[] | null;
+  mask_rle?: string | null;
+  points?: number[][] | null;
+  area?: number | null;
+  confidence?: number | null;
+  is_auto_generated?: boolean;
 }
 
 export interface SegmentationResult {
@@ -107,9 +128,10 @@ export const imagesApi = {
 // Annotations API
 export const annotationsApi = {
   listByImage: (imageId: number) => api.get<Annotation[]>(`/annotations/image/${imageId}`),
-  create: (data: Partial<Annotation>) => api.post<Annotation>('/annotations', data),
-  createBulk: (annotations: Partial<Annotation>[]) => api.post<Annotation[]>('/annotations/bulk', annotations),
-  update: (id: number, data: Partial<Annotation>) => api.put<Annotation>(`/annotations/${id}`, data),
+  create: (data: AnnotationCreate) => api.post<Annotation>('/annotations', data),
+  createBulk: (imageId: number, annotations: AnnotationCreate[]) =>
+    api.post<Annotation[]>('/annotations/bulk', { image_id: imageId, annotations }),
+  update: (id: number, data: Partial<AnnotationCreate>) => api.put<Annotation>(`/annotations/${id}`, data),
   delete: (id: number) => api.delete(`/annotations/${id}`),
 };
 
