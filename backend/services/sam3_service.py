@@ -157,8 +157,29 @@ class SAM3Service:
 
         Following SAM3 example: processor.set_image(image)
         The processor accepts both PIL Image and numpy array.
+        Images are converted to RGB if they have 4 channels (RGBA).
         """
         self.ensure_loaded()
+
+        # Convert RGBA to RGB if needed (SAM3 expects 3 channels)
+        if image.mode == 'RGBA':
+            logger.info(f"Converting image from RGBA to RGB")
+            # Create white background and composite
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[3])  # Use alpha channel as mask
+            image = background
+        elif image.mode == 'LA':
+            logger.info(f"Converting image from LA to RGB")
+            image = image.convert('RGB')
+        elif image.mode == 'L':
+            logger.info(f"Converting image from L (grayscale) to RGB")
+            image = image.convert('RGB')
+        elif image.mode == 'P':
+            logger.info(f"Converting image from P (palette) to RGB")
+            image = image.convert('RGB')
+        elif image.mode != 'RGB':
+            logger.info(f"Converting image from {image.mode} to RGB")
+            image = image.convert('RGB')
 
         self._current_image = image
         self._image_size = image.size  # (width, height)
