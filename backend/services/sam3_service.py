@@ -213,12 +213,18 @@ class SAM3Service:
                 width, height = self._image_size
                 x1, y1, x2, y2 = box
 
+                # 입력 좌표 로깅
+                logger.info(f"Input box (pixels): x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+                logger.info(f"Image size: width={width}, height={height}")
+
                 center_x = ((x1 + x2) / 2) / width
                 center_y = ((y1 + y2) / 2) / height
                 box_width = abs(x2 - x1) / width
                 box_height = abs(y2 - y1) / height
 
                 normalized_box = [center_x, center_y, box_width, box_height]
+                logger.info(f"Normalized box (cxcywh 0-1): cx={center_x:.4f}, cy={center_y:.4f}, w={box_width:.4f}, h={box_height:.4f}")
+
                 result = self._processor.add_geometric_prompt(normalized_box, is_positive, self._current_state)
 
                 return self._process_sam3_result(result)
