@@ -31,9 +31,10 @@ class Settings(BaseSettings):
     # SAM3 Model settings
     SAM3_MODEL_TYPE: str = "sam3"
     SAM3_CHECKPOINT: Optional[str] = None
+    SAM3_LOCAL_PATH: Optional[str] = None  # Local path to SAM3 model (e.g., "/path/to/sam3")
     DEVICE: str = "cuda"  # or "cpu"
 
-    # HuggingFace settings
+    # HuggingFace settings (only used if SAM3_LOCAL_PATH is not set)
     HF_TOKEN: Optional[str] = None
     HF_MODEL_ID: str = "facebook/sam3"
 

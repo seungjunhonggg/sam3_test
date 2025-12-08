@@ -1,11 +1,14 @@
 """SAM3 Model Service for segmentation operations."""
 import logging
+import sys
 from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
 import io
 import base64
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +29,51 @@ class SAM3Service:
         return self._is_loaded
 
     def load_model(self, checkpoint: Optional[str] = None) -> bool:
-        """Load the SAM3 model."""
+        """Load the SAM3 model.
+
+        Supports loading from:
+        1. Custom checkpoint path (if provided)
+        2. Local path (SAM3_LOCAL_PATH environment variable)
+        3. HuggingFace (default, requires HF_TOKEN)
+        """
         try:
+            # Add local SAM3 path to Python path if configured
+            local_path = settings.SAM3_LOCAL_PATH
+            if local_path:
+                local_path = Path(local_path)
+                if local_path.exists():
+                    # Add to Python path for importing
+                    sam3_path = str(local_path)
+                    if sam3_path not in sys.path:
+                        sys.path.insert(0, sam3_path)
+                    logger.info(f"Using local SAM3 from: {sam3_path}")
+                else:
+                    logger.warning(f"SAM3_LOCAL_PATH does not exist: {local_path}")
+
             # Import SAM3 modules
             from sam3.model_builder import build_sam3_image_model
             from sam3.model.sam3_image_processor import Sam3Processor
 
             logger.info("Loading SAM3 model...")
 
+            # Determine checkpoint to use
+            model_checkpoint = checkpoint or settings.SAM3_CHECKPOINT
+
+            # If local path is set and has model files, use it
+            if local_path and local_path.exists():
+                # Check for common model file patterns
+                model_files = list(local_path.glob("*.pt")) + list(local_path.glob("*.pth")) + list(local_path.glob("*.bin"))
+                if model_files and not model_checkpoint:
+                    model_checkpoint = str(model_files[0])
+                    logger.info(f"Found model checkpoint: {model_checkpoint}")
+
             # Build the model
-            if checkpoint:
-                self._model = build_sam3_image_model(checkpoint=checkpoint)
+            if model_checkpoint:
+                logger.info(f"Loading model from checkpoint: {model_checkpoint}")
+                self._model = build_sam3_image_model(checkpoint=model_checkpoint, device=settings.DEVICE)
             else:
-                self._model = build_sam3_image_model()
+                logger.info("Loading model from default/HuggingFace")
+                self._model = build_sam3_image_model(device=settings.DEVICE)
 
             # Create processor
             self._processor = Sam3Processor(self._model)
