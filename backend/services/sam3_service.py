@@ -21,6 +21,7 @@ class SAM3Service:
         self._current_image = None
         self._current_state = None
         self._image_size = None  # (width, height)
+        self._confidence_threshold = 0.5  # Default confidence threshold
 
     @property
     def is_loaded(self) -> bool:
@@ -91,14 +92,44 @@ class SAM3Service:
         # Mock mode
         return {"status": "success", "image_size": image.size, "mode": "mock"}
 
-    def segment_with_text(self, prompt: str) -> Dict[str, Any]:
-        """Segment image using text prompt."""
+    def set_confidence_threshold(self, threshold: float) -> Dict[str, Any]:
+        """Set the confidence threshold for filtering results."""
+        self._confidence_threshold = max(0.0, min(1.0, threshold))
+
+        if self._processor and self._current_state:
+            try:
+                self._processor.set_confidence_threshold(self._confidence_threshold, self._current_state)
+                return {"status": "success", "threshold": self._confidence_threshold}
+            except Exception as e:
+                logger.warning(f"Failed to set confidence threshold: {e}")
+
+        return {"status": "success", "threshold": self._confidence_threshold, "mode": "mock"}
+
+    def reset_prompts(self) -> Dict[str, Any]:
+        """Reset all prompts and return to image-only state."""
+        if self._processor and self._current_state:
+            try:
+                self._processor.reset_all_prompts(self._current_state)
+                return {"status": "success"}
+            except Exception as e:
+                logger.error(f"Failed to reset prompts: {e}")
+                return {"error": str(e)}
+        return {"status": "success", "mode": "mock"}
+
+    def segment_with_text(self, prompt: str, reset: bool = True) -> Dict[str, Any]:
+        """Segment image using text prompt.
+
+        Args:
+            prompt: Text description of what to segment
+            reset: If True, reset previous prompts before applying (default: True)
+        """
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
             try:
-                self._processor.reset_all_prompts(self._current_state)
+                if reset:
+                    self._processor.reset_all_prompts(self._current_state)
                 result = self._processor.set_text_prompt(prompt, self._current_state)
                 return self._process_sam3_result(result)
             except Exception as e:
@@ -110,15 +141,23 @@ class SAM3Service:
     def segment_with_points(
         self,
         points: List[Tuple[int, int]],
-        labels: List[int]
+        labels: List[int],
+        reset: bool = True
     ) -> Dict[str, Any]:
-        """Segment using point prompts (converted to small boxes)."""
+        """Segment using point prompts (converted to small boxes).
+
+        Args:
+            points: List of (x, y) pixel coordinates
+            labels: List of labels (1=positive/include, 0=negative/exclude)
+            reset: If True, reset previous prompts before applying (default: True)
+        """
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
             try:
-                self._processor.reset_all_prompts(self._current_state)
+                if reset:
+                    self._processor.reset_all_prompts(self._current_state)
 
                 width, height = self._image_size
                 result = None
@@ -141,14 +180,26 @@ class SAM3Service:
 
         return self._mock_segmentation(f"points_{len(points)}")
 
-    def segment_with_box(self, box: Tuple[int, int, int, int]) -> Dict[str, Any]:
-        """Segment using bounding box prompt."""
+    def segment_with_box(
+        self,
+        box: Tuple[int, int, int, int],
+        is_positive: bool = True,
+        reset: bool = True
+    ) -> Dict[str, Any]:
+        """Segment using bounding box prompt.
+
+        Args:
+            box: Bounding box as (x1, y1, x2, y2) in pixel coordinates
+            is_positive: True for positive/include box, False for negative/exclude box
+            reset: If True, reset previous prompts before applying (default: True)
+        """
         if self._current_image is None:
             return {"error": "No image set. Call set_image first."}
 
         if self._processor and self._current_state:
             try:
-                self._processor.reset_all_prompts(self._current_state)
+                if reset:
+                    self._processor.reset_all_prompts(self._current_state)
 
                 width, height = self._image_size
                 x1, y1, x2, y2 = box
@@ -159,7 +210,7 @@ class SAM3Service:
                 box_height = abs(y2 - y1) / height
 
                 normalized_box = [center_x, center_y, box_width, box_height]
-                result = self._processor.add_geometric_prompt(normalized_box, True, self._current_state)
+                result = self._processor.add_geometric_prompt(normalized_box, is_positive, self._current_state)
 
                 return self._process_sam3_result(result)
 
@@ -168,6 +219,78 @@ class SAM3Service:
                 return {"error": str(e)}
 
         return self._mock_segmentation(f"box_{box}")
+
+    def segment_with_combined_prompts(
+        self,
+        text_prompt: Optional[str] = None,
+        boxes: Optional[List[Dict[str, Any]]] = None,
+        points: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Segment using combined prompts (text + boxes + points).
+
+        This allows interactive refinement by combining multiple prompt types.
+
+        Args:
+            text_prompt: Optional text description
+            boxes: Optional list of boxes, each as {"box": [x1, y1, x2, y2], "is_positive": bool}
+            points: Optional list of points, each as {"point": [x, y], "label": 0 or 1}
+        """
+        if self._current_image is None:
+            return {"error": "No image set. Call set_image first."}
+
+        if self._processor and self._current_state:
+            try:
+                self._processor.reset_all_prompts(self._current_state)
+                result = None
+                width, height = self._image_size
+
+                # Apply text prompt first
+                if text_prompt:
+                    result = self._processor.set_text_prompt(text_prompt, self._current_state)
+
+                # Add box prompts (for refinement)
+                if boxes:
+                    for box_data in boxes:
+                        box = box_data.get("box", [])
+                        is_positive = box_data.get("is_positive", True)
+                        if len(box) == 4:
+                            x1, y1, x2, y2 = box
+                            center_x = ((x1 + x2) / 2) / width
+                            center_y = ((y1 + y2) / 2) / height
+                            box_width = abs(x2 - x1) / width
+                            box_height = abs(y2 - y1) / height
+                            normalized_box = [center_x, center_y, box_width, box_height]
+                            result = self._processor.add_geometric_prompt(
+                                normalized_box, is_positive, self._current_state
+                            )
+
+                # Add point prompts (converted to small boxes)
+                if points:
+                    for point_data in points:
+                        point = point_data.get("point", [])
+                        label = point_data.get("label", 1)
+                        if len(point) == 2:
+                            x, y = point
+                            box_size = 0.02  # 2% of image
+                            center_x = x / width
+                            center_y = y / height
+                            box = [center_x, center_y, box_size, box_size]
+                            is_positive = label == 1
+                            result = self._processor.add_geometric_prompt(
+                                box, is_positive, self._current_state
+                            )
+
+                if result:
+                    return self._process_sam3_result(result)
+                return {"masks": [], "count": 0}
+
+            except Exception as e:
+                logger.error(f"Combined prompt segmentation error: {e}")
+                return {"error": str(e)}
+
+        # Mock mode
+        prompt_desc = f"text={text_prompt}, boxes={len(boxes or [])}, points={len(points or [])}"
+        return self._mock_segmentation(prompt_desc)
 
     def segment_auto(self) -> Dict[str, Any]:
         """Automatic segmentation."""
@@ -200,15 +323,10 @@ class SAM3Service:
                     bbox = boxes[i]
                     if isinstance(bbox, torch.Tensor):
                         bbox = bbox.cpu().numpy().tolist()
-                    if bbox and all(0 <= v <= 1 for v in bbox):
-                        width, height = self._image_size
-                        cx, cy, bw, bh = bbox
-                        bbox = [
-                            int((cx - bw/2) * width),
-                            int((cy - bh/2) * height),
-                            int(bw * width),
-                            int(bh * height)
-                        ]
+                    # SAM3 returns boxes in [x0, y0, x1, y1] pixel format
+                    if bbox and len(bbox) == 4:
+                        x0, y0, x1, y1 = bbox
+                        bbox = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]  # Convert to [x, y, w, h]
                 else:
                     bbox = self._mask_to_bbox(mask)
 

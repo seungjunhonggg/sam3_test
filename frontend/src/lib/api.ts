@@ -138,25 +138,53 @@ export const annotationsApi = {
 // Segmentation API (SAM3)
 export const segmentationApi = {
   setImage: (imageId: number) => api.post(`/segmentation/set-image/${imageId}`),
+
   segmentText: (prompt: string, imageId?: number) =>
     api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/text', {
       prompt,
       image_id: imageId
     }),
+
   segmentPoints: (points: { x: number; y: number; label: number }[], imageId?: number) =>
     api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/points', {
       points,
       image_id: imageId
     }),
-  segmentBox: (box: { x1: number; y1: number; x2: number; y2: number }, imageId?: number) =>
+
+  segmentBox: (
+    box: { x1: number; y1: number; x2: number; y2: number; is_positive?: boolean },
+    imageId?: number
+  ) =>
     api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/box', {
-      box,
+      box: { ...box, is_positive: box.is_positive ?? true },
       image_id: imageId
     }),
+
   segmentAuto: (imageId: number) =>
     api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/auto', {
       image_id: imageId
     }),
+
+  // New SAM3 interactive features
+  setConfidence: (threshold: number) =>
+    api.post<{ status: string; threshold: number }>('/segmentation/confidence', { threshold }),
+
+  resetPrompts: () =>
+    api.post<{ status: string }>('/segmentation/reset'),
+
+  segmentCombined: (params: {
+    text_prompt?: string;
+    boxes?: { box: number[]; is_positive: boolean }[];
+    points?: { point: number[]; label: number }[];
+    image_id?: number;
+  }) =>
+    api.post<{ masks: SegmentationResult[]; count: number }>('/segmentation/combined', params),
+
+  getStatus: () =>
+    api.get<{ loaded: boolean; has_image: boolean }>('/segmentation/status'),
+
+  loadModel: (checkpoint?: string) =>
+    api.post<{ success: boolean; loaded: boolean }>('/segmentation/load-model', { checkpoint }),
 };
 
 // Training API

@@ -27,6 +27,19 @@ class BoxPrompt(BaseModel):
     y1: int
     x2: int
     y2: int
+    is_positive: bool = True  # True for include, False for exclude
+
+
+class BoxWithLabel(BaseModel):
+    """Box with label for combined prompts."""
+    box: List[int]  # [x1, y1, x2, y2]
+    is_positive: bool = True
+
+
+class PointWithLabel(BaseModel):
+    """Point with label for combined prompts."""
+    point: List[int]  # [x, y]
+    label: int = 1  # 1 for foreground, 0 for background
 
 
 class TextPromptRequest(BaseModel):
@@ -50,6 +63,19 @@ class BoxPromptRequest(BaseModel):
 class AutoSegmentRequest(BaseModel):
     """Auto segmentation request."""
     image_id: int
+
+
+class ConfidenceRequest(BaseModel):
+    """Confidence threshold request."""
+    threshold: float
+
+
+class CombinedPromptRequest(BaseModel):
+    """Combined prompt request for interactive segmentation."""
+    image_id: Optional[int] = None
+    text_prompt: Optional[str] = None
+    boxes: Optional[List[BoxWithLabel]] = None
+    points: Optional[List[PointWithLabel]] = None
 
 
 class SegmentationResult(BaseModel):
@@ -237,7 +263,7 @@ async def segment_with_box(
     # Run segmentation
     try:
         box = (request.box.x1, request.box.y1, request.box.x2, request.box.y2)
-        result = sam3_service.segment_with_box(box)
+        result = sam3_service.segment_with_box(box, is_positive=request.box.is_positive)
 
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
@@ -329,5 +355,93 @@ async def load_model(
             "success": success,
             "loaded": sam3_service.is_loaded
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/confidence")
+async def set_confidence_threshold(
+    request: ConfidenceRequest
+):
+    """Set confidence threshold for filtering segmentation results."""
+    try:
+        result = sam3_service.set_confidence_threshold(request.threshold)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reset")
+async def reset_prompts():
+    """Reset all prompts and return to image-only state."""
+    try:
+        result = sam3_service.reset_prompts()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/combined", response_model=SegmentationResponse)
+async def segment_with_combined_prompts(
+    request: CombinedPromptRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Segment using combined prompts (text + boxes + points).
+
+    This allows interactive refinement by combining multiple prompt types.
+    Useful for: text prompt first, then refine with positive/negative boxes.
+    """
+    # If image_id is provided, set the image first
+    if request.image_id:
+        result = await db.execute(
+            select(Image).where(Image.id == request.image_id)
+        )
+        image = result.scalar_one_or_none()
+
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        pil_image = PILImage.open(image.file_path)
+        sam3_service.set_image(pil_image)
+
+    # Convert request to service format
+    boxes = None
+    points = None
+
+    if request.boxes:
+        boxes = [{"box": b.box, "is_positive": b.is_positive} for b in request.boxes]
+
+    if request.points:
+        points = [{"point": p.point, "label": p.label} for p in request.points]
+
+    # Run segmentation
+    try:
+        result = sam3_service.segment_with_combined_prompts(
+            text_prompt=request.text_prompt,
+            boxes=boxes,
+            points=points
+        )
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        masks = [
+            SegmentationResult(
+                id=m["id"],
+                polygon=m["polygon"],
+                bbox=m["bbox"],
+                score=m["score"],
+                area=m["area"],
+                rle=m.get("rle")
+            )
+            for m in result["masks"]
+        ]
+
+        return SegmentationResponse(
+            masks=masks,
+            count=result["count"],
+            mode=result.get("mode")
+        )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
