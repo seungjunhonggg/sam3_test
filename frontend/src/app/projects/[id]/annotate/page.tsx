@@ -176,7 +176,7 @@ export default function AnnotatePage({ params }: Props) {
   const loadImage = useCallback(() => {
     if (!currentImage) return;
 
-    const imageUrl = `http://localhost:8000${currentImage.url || `/uploads/${projectId}/${currentImage.filename}`}`;
+    const imageUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${currentImage.url || `/uploads/${projectId}/${currentImage.filename}`}`;
 
     // 이미 같은 이미지가 로드되어 있으면 스킵
     if (imageLoadedRef.current === imageUrl && imageRef.current) {

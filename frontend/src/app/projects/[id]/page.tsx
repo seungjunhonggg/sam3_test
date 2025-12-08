@@ -330,7 +330,7 @@ export default function ProjectDetailPage({ params }: Props) {
                     >
                       <Card.Section pos="relative">
                         <Image
-                          src={`http://localhost:8000${image.url}`}
+                          src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${image.url}`}
                           alt={image.original_filename}
                           height={140}
                           fit="cover"
