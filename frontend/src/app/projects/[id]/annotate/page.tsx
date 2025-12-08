@@ -76,6 +76,8 @@ export default function AnnotatePage({ params }: Props) {
   const [loading, setLoading] = useState(true);
   const [samLoading, setSamLoading] = useState(false);
   const [textPrompt, setTextPrompt] = useState('');
+  const [mousePos, setMousePos] = useState<number[] | null>(null);  // 마우스 위치 추적
+  const [dragStart, setDragStart] = useState<number[] | null>(null);  // 드래그 시작점
 
   const {
     annotations,
@@ -142,7 +144,7 @@ export default function AnnotatePage({ params }: Props) {
     if (imageRef.current && imageRef.current.complete) {
       drawCanvas();
     }
-  }, [annotations, currentPoints, samPendingMasks, zoom, panOffset, selectedAnnotationId]);
+  }, [annotations, currentPoints, samPendingMasks, zoom, panOffset, selectedAnnotationId, mousePos, dragStart]);
 
   // 이미지 로드 함수 (한 번만 로드하고 캐싱)
   const loadImage = useCallback(() => {
@@ -247,7 +249,7 @@ export default function AnnotatePage({ params }: Props) {
       drawPolygon(ctx, mask.polygon, color, false, 0.4);
     });
 
-    // Draw current drawing points
+    // Draw current drawing points (폴리곤, 브러시)
     if (currentPoints.length > 0) {
       const cls = project?.classes.find((c) => c.id === selectedClassId);
       const color = cls?.color || '#0071ff';
@@ -259,17 +261,41 @@ export default function AnnotatePage({ params }: Props) {
       currentPoints.forEach((point) => {
         ctx.lineTo(point[0], point[1]);
       });
+
+      // 폴리곤 그리기 시 마우스 위치까지 선 연장
+      if ((activeTool === 'polygon' || activeTool === 'brush') && mousePos) {
+        ctx.lineTo(mousePos[0], mousePos[1]);
+      }
       ctx.stroke();
 
-      // Draw points
-      currentPoints.forEach((point) => {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(point[0], point[1], 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
+      // Draw points (폴리곤용)
+      if (activeTool === 'polygon') {
+        currentPoints.forEach((point) => {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(point[0], point[1], 4, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
     }
-  }, [currentImage, annotations, currentPoints, samPendingMasks, selectedAnnotationId, selectedClassId, project]);
+
+    // bbox/sam_box 드래그 미리보기
+    if (dragStart && mousePos && (activeTool === 'bbox' || activeTool === 'sam_box')) {
+      const cls = project?.classes.find((c) => c.id === selectedClassId);
+      const color = cls?.color || '#0071ff';
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);  // 점선
+      ctx.strokeRect(
+        Math.min(dragStart[0], mousePos[0]),
+        Math.min(dragStart[1], mousePos[1]),
+        Math.abs(mousePos[0] - dragStart[0]),
+        Math.abs(mousePos[1] - dragStart[1])
+      );
+      ctx.setLineDash([]);  // 점선 해제
+    }
+  }, [currentImage, annotations, currentPoints, samPendingMasks, selectedAnnotationId, selectedClassId, project, activeTool, mousePos, dragStart]);
 
   const drawPolygon = (
     ctx: CanvasRenderingContext2D,
@@ -335,22 +361,61 @@ export default function AnnotatePage({ params }: Props) {
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+
     if (activeTool === 'bbox' || activeTool === 'sam_box') {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const x = Math.round((e.clientX - rect.left) * scaleX);
-      const y = Math.round((e.clientY - rect.top) * scaleY);
-
+      setDragStart([x, y]);
+      setCurrentPoints([[x, y]]);
+      setIsDrawing(true);
+    } else if (activeTool === 'brush') {
+      // 브러시: 드래그 시작
       setCurrentPoints([[x, y]]);
       setIsDrawing(true);
     }
   };
 
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+
+    // 마우스 위치 업데이트 (미리보기용)
+    setMousePos([x, y]);
+
+    // 브러시 드래그 중일 때 포인트 추가
+    if (activeTool === 'brush' && isDrawing) {
+      addPoint([x, y]);
+    }
+  };
+
   const handleCanvasMouseUp = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // 브러시 도구 완료
+    if (activeTool === 'brush' && isDrawing && currentPoints.length >= 3) {
+      await saveAnnotation(currentPoints, 'polygon');
+      clearCurrentPoints();
+      setIsDrawing(false);
+      return;
+    } else if (activeTool === 'brush') {
+      // 포인트가 부족하면 초기화만
+      clearCurrentPoints();
+      setIsDrawing(false);
+      return;
+    }
+
+    // bbox와 sam_box 도구에만 적용
+    if (activeTool !== 'bbox' && activeTool !== 'sam_box') return;
     if (!isDrawing || currentPoints.length === 0) return;
 
     const canvas = canvasRef.current;
@@ -396,6 +461,7 @@ export default function AnnotatePage({ params }: Props) {
     }
 
     clearCurrentPoints();
+    setDragStart(null);
   };
 
   const handleKeyDown = async (e: React.KeyboardEvent) => {
@@ -502,6 +568,9 @@ export default function AnnotatePage({ params }: Props) {
     clearCurrentPoints();
     clearSamPending();
     selectAnnotation(null);
+    setDragStart(null);
+    setMousePos(null);
+    setIsDrawing(false);
   };
 
   const goToPreviousImage = () => {
@@ -689,7 +758,9 @@ export default function AnnotatePage({ params }: Props) {
             style={{ transform: `scale(${zoom})` }}
             onClick={handleCanvasClick}
             onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
+            onMouseLeave={() => setMousePos(null)}
           />
         </Box>
 
