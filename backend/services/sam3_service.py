@@ -362,12 +362,25 @@ class SAM3Service:
             return []
 
         largest = max(contours, key=cv2.contourArea)
-        epsilon = 0.005 * cv2.arcLength(largest, True)
+
+        # 폴리곤 단순화 - epsilon을 작게 해서 더 많은 점 유지
+        epsilon = 0.001 * cv2.arcLength(largest, True)
         approx = cv2.approxPolyDP(largest, epsilon, True)
 
+        # 단순화 후에도 최소 3개 점 필요
+        if len(approx) < 3:
+            # 단순화가 너무 과도하면 원본 contour 사용
+            approx = largest
+
         polygon = approx.squeeze().tolist()
+
+        # 1차원 배열인 경우 (점이 1개만 있을 때) 처리
         if isinstance(polygon[0], int):
             polygon = [polygon]
+
+        # 여전히 3개 미만이면 빈 배열 반환
+        if len(polygon) < 3:
+            return []
 
         return polygon
 
