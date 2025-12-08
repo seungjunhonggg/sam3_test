@@ -5,10 +5,61 @@ from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
+import torch
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# SAM3 helper functions (from sam3.model.box_ops and sam3.visualization_utils)
+# These will be imported from SAM3 if available, otherwise use local implementations
+_sam3_normalize_bbox = None
+_sam3_box_xywh_to_cxcywh = None
+
+
+def _normalize_bbox_local(bbox_xywh: List[float], img_w: int, img_h: int) -> List[float]:
+    """Normalize bbox from pixel coordinates to [0, 1] range.
+
+    Args:
+        bbox_xywh: [x, y, width, height] in pixel coordinates (top-left corner + dimensions)
+        img_w: Image width
+        img_h: Image height
+
+    Returns:
+        Normalized [x, y, width, height] in [0, 1] range
+    """
+    return [
+        bbox_xywh[0] / img_w,
+        bbox_xywh[1] / img_h,
+        bbox_xywh[2] / img_w,
+        bbox_xywh[3] / img_h
+    ]
+
+
+def _box_xywh_to_cxcywh_local(bbox_xywh: List[float]) -> List[float]:
+    """Convert [x, y, w, h] format to [center_x, center_y, w, h] format.
+
+    Args:
+        bbox_xywh: [x, y, width, height] (top-left corner + dimensions)
+
+    Returns:
+        [center_x, center_y, width, height]
+    """
+    x, y, w, h = bbox_xywh
+    return [x + 0.5 * w, y + 0.5 * h, w, h]
+
+
+def _xyxy_to_xywh(x1: float, y1: float, x2: float, y2: float) -> List[float]:
+    """Convert [x1, y1, x2, y2] corner format to [x, y, w, h] format.
+
+    Args:
+        x1, y1: Top-left corner
+        x2, y2: Bottom-right corner
+
+    Returns:
+        [x, y, width, height] (top-left corner + dimensions)
+    """
+    return [x1, y1, x2 - x1, y2 - y1]
 
 
 class SAM3Service:
@@ -29,6 +80,8 @@ class SAM3Service:
 
     def load_model(self, checkpoint: Optional[str] = None) -> bool:
         """Load the SAM3 model."""
+        global _sam3_normalize_bbox, _sam3_box_xywh_to_cxcywh
+
         try:
             # Add local SAM3 path to Python path if configured
             local_path = settings.SAM3_LOCAL_PATH
@@ -43,6 +96,16 @@ class SAM3Service:
             # Import SAM3 modules
             from sam3.model_builder import build_sam3_image_model
             from sam3.model.sam3_image_processor import Sam3Processor
+
+            # Import SAM3 helper functions (same as example notebook)
+            try:
+                from sam3.visualization_utils import normalize_bbox
+                from sam3.model.box_ops import box_xywh_to_cxcywh
+                _sam3_normalize_bbox = normalize_bbox
+                _sam3_box_xywh_to_cxcywh = box_xywh_to_cxcywh
+                logger.info("SAM3 helper functions imported successfully")
+            except ImportError as e:
+                logger.warning(f"SAM3 helper functions not available, using local implementations: {e}")
 
             logger.info("Loading SAM3 model...")
 
@@ -65,8 +128,11 @@ class SAM3Service:
                     enable_segmentation=True
                 )
 
-            # Create processor
-            self._processor = Sam3Processor(self._model, device=device)
+            # Create processor with confidence_threshold (same as example notebook)
+            self._processor = Sam3Processor(
+                self._model,
+                confidence_threshold=self._confidence_threshold
+            )
 
             self._is_loaded = True
             logger.info("SAM3 model loaded successfully")
@@ -87,15 +153,22 @@ class SAM3Service:
             self.load_model()
 
     def set_image(self, image: Image.Image) -> Dict[str, Any]:
-        """Set the current image for segmentation."""
+        """Set the current image for segmentation.
+
+        Following SAM3 example: processor.set_image(image)
+        The processor accepts both PIL Image and numpy array.
+        """
         self.ensure_loaded()
 
         self._current_image = image
         self._image_size = image.size  # (width, height)
 
         if self._processor:
-            image_np = np.array(image)
-            self._current_state = self._processor.set_image(image_np)
+            # Pass PIL Image directly as shown in the example notebook
+            # processor.set_image(image) - not np.array(image)
+            logger.info(f"Setting image: size={image.size}, mode={image.mode}")
+            self._current_state = self._processor.set_image(image)
+            logger.info(f"Image set successfully. State keys: {list(self._current_state.keys()) if isinstance(self._current_state, dict) else type(self._current_state)}")
             return {"status": "success", "image_size": image.size}
 
         # Mock mode
@@ -155,6 +228,8 @@ class SAM3Service:
     ) -> Dict[str, Any]:
         """Segment using point prompts (converted to small boxes).
 
+        Following SAM3 example format - points are converted to small boxes.
+
         Args:
             points: List of (x, y) pixel coordinates
             labels: List of labels (1=positive/include, 0=negative/exclude)
@@ -172,12 +247,27 @@ class SAM3Service:
                 result = None
 
                 for (x, y), label in zip(points, labels):
-                    box_size = 0.02  # 2% of image
-                    center_x = x / width
-                    center_y = y / height
-                    box = [center_x, center_y, box_size, box_size]
+                    # Create small box centered at point (2% of smaller dimension)
+                    box_size_px = min(width, height) * 0.02
+                    x1 = x - box_size_px / 2
+                    y1 = y - box_size_px / 2
+                    x2 = x + box_size_px / 2
+                    y2 = y + box_size_px / 2
+
+                    # Use same conversion pipeline as segment_with_box
+                    box_xywh = _xyxy_to_xywh(x1, y1, x2, y2)
+                    if _sam3_normalize_bbox:
+                        normalized_box = _sam3_normalize_bbox(box_xywh, width, height)
+                    else:
+                        normalized_box = _normalize_bbox_local(box_xywh, width, height)
+                    if _sam3_box_xywh_to_cxcywh:
+                        normalized_tensor = torch.tensor(normalized_box)
+                        cx_cy_box = _sam3_box_xywh_to_cxcywh(normalized_tensor).tolist()
+                    else:
+                        cx_cy_box = _box_xywh_to_cxcywh_local(normalized_box)
+
                     is_positive = label == 1
-                    result = self._processor.add_geometric_prompt(box, is_positive, self._current_state)
+                    result = self._processor.add_geometric_prompt(cx_cy_box, is_positive, self._current_state)
 
                 if result:
                     return self._process_sam3_result(result)
@@ -197,6 +287,12 @@ class SAM3Service:
     ) -> Dict[str, Any]:
         """Segment using bounding box prompt.
 
+        Following SAM3 example notebook EXACTLY:
+        1. box = [x, y, width, height]  # pixel coordinates, top-left corner + dimensions
+        2. normalized_box = normalize_bbox(box, image_width, image_height)
+        3. cx_cy_box = box_xywh_to_cxcywh(normalized_box)
+        4. processor.add_geometric_prompt(cx_cy_box, is_positive, state)
+
         Args:
             box: Bounding box as (x1, y1, x2, y2) in pixel coordinates
             is_positive: True for positive/include box, False for negative/exclude box
@@ -213,24 +309,48 @@ class SAM3Service:
                 width, height = self._image_size
                 x1, y1, x2, y2 = box
 
-                # 입력 좌표 로깅
+                # Step 1: Convert (x1, y1, x2, y2) to (x, y, w, h) format
+                # SAM3 example uses [x, y, width, height] - top-left corner + dimensions
+                box_xywh = _xyxy_to_xywh(x1, y1, x2, y2)
+
                 logger.info(f"Input box (pixels): x1={x1}, y1={y1}, x2={x2}, y2={y2}")
                 logger.info(f"Image size: width={width}, height={height}")
+                logger.info(f"Box xywh: x={box_xywh[0]}, y={box_xywh[1]}, w={box_xywh[2]}, h={box_xywh[3]}")
 
-                center_x = ((x1 + x2) / 2) / width
-                center_y = ((y1 + y2) / 2) / height
-                box_width = abs(x2 - x1) / width
-                box_height = abs(y2 - y1) / height
+                # Step 2: Normalize using SAM3's normalize_bbox (or local implementation)
+                if _sam3_normalize_bbox:
+                    normalized_box = _sam3_normalize_bbox(box_xywh, width, height)
+                    logger.info("Using SAM3's normalize_bbox")
+                else:
+                    normalized_box = _normalize_bbox_local(box_xywh, width, height)
+                    logger.info("Using local normalize_bbox")
 
-                normalized_box = [center_x, center_y, box_width, box_height]
-                logger.info(f"Normalized box (cxcywh 0-1): cx={center_x:.4f}, cy={center_y:.4f}, w={box_width:.4f}, h={box_height:.4f}")
+                logger.info(f"Normalized box (xywh 0-1): x={normalized_box[0]:.4f}, y={normalized_box[1]:.4f}, w={normalized_box[2]:.4f}, h={normalized_box[3]:.4f}")
 
-                result = self._processor.add_geometric_prompt(normalized_box, is_positive, self._current_state)
+                # Step 3: Convert to center format using SAM3's box_xywh_to_cxcywh (or local)
+                if _sam3_box_xywh_to_cxcywh:
+                    # SAM3's function expects a torch tensor
+                    normalized_tensor = torch.tensor(normalized_box)
+                    cx_cy_box_tensor = _sam3_box_xywh_to_cxcywh(normalized_tensor)
+                    cx_cy_box = cx_cy_box_tensor.tolist()
+                    logger.info("Using SAM3's box_xywh_to_cxcywh")
+                else:
+                    cx_cy_box = _box_xywh_to_cxcywh_local(normalized_box)
+                    logger.info("Using local box_xywh_to_cxcywh")
+
+                logger.info(f"Final box (cxcywh 0-1): cx={cx_cy_box[0]:.4f}, cy={cx_cy_box[1]:.4f}, w={cx_cy_box[2]:.4f}, h={cx_cy_box[3]:.4f}")
+
+                # Step 4: Call add_geometric_prompt exactly as in the example
+                result = self._processor.add_geometric_prompt(cx_cy_box, is_positive, self._current_state)
+
+                logger.info(f"add_geometric_prompt result type: {type(result)}")
+                if isinstance(result, dict):
+                    logger.info(f"Result keys: {list(result.keys())}")
 
                 return self._process_sam3_result(result)
 
             except Exception as e:
-                logger.error(f"Box segmentation error: {e}")
+                logger.error(f"Box segmentation error: {e}", exc_info=True)
                 return {"error": str(e)}
 
         return self._mock_segmentation(f"box_{box}")
@@ -263,20 +383,26 @@ class SAM3Service:
                 if text_prompt:
                     result = self._processor.set_text_prompt(text_prompt, self._current_state)
 
-                # Add box prompts (for refinement)
+                # Add box prompts (for refinement) - using SAM3 example format
                 if boxes:
                     for box_data in boxes:
                         box = box_data.get("box", [])
                         is_positive = box_data.get("is_positive", True)
                         if len(box) == 4:
                             x1, y1, x2, y2 = box
-                            center_x = ((x1 + x2) / 2) / width
-                            center_y = ((y1 + y2) / 2) / height
-                            box_width = abs(x2 - x1) / width
-                            box_height = abs(y2 - y1) / height
-                            normalized_box = [center_x, center_y, box_width, box_height]
+                            # Use same conversion as segment_with_box
+                            box_xywh = _xyxy_to_xywh(x1, y1, x2, y2)
+                            if _sam3_normalize_bbox:
+                                normalized_box = _sam3_normalize_bbox(box_xywh, width, height)
+                            else:
+                                normalized_box = _normalize_bbox_local(box_xywh, width, height)
+                            if _sam3_box_xywh_to_cxcywh:
+                                normalized_tensor = torch.tensor(normalized_box)
+                                cx_cy_box = _sam3_box_xywh_to_cxcywh(normalized_tensor).tolist()
+                            else:
+                                cx_cy_box = _box_xywh_to_cxcywh_local(normalized_box)
                             result = self._processor.add_geometric_prompt(
-                                normalized_box, is_positive, self._current_state
+                                cx_cy_box, is_positive, self._current_state
                             )
 
                 # Add point prompts (converted to small boxes)
@@ -286,13 +412,26 @@ class SAM3Service:
                         label = point_data.get("label", 1)
                         if len(point) == 2:
                             x, y = point
-                            box_size = 0.02  # 2% of image
-                            center_x = x / width
-                            center_y = y / height
-                            box = [center_x, center_y, box_size, box_size]
+                            # Create small box centered at point
+                            box_size_px = min(width, height) * 0.02  # 2% of smaller dimension
+                            x1 = x - box_size_px / 2
+                            y1 = y - box_size_px / 2
+                            x2 = x + box_size_px / 2
+                            y2 = y + box_size_px / 2
+                            # Use same conversion as boxes
+                            box_xywh = _xyxy_to_xywh(x1, y1, x2, y2)
+                            if _sam3_normalize_bbox:
+                                normalized_box = _sam3_normalize_bbox(box_xywh, width, height)
+                            else:
+                                normalized_box = _normalize_bbox_local(box_xywh, width, height)
+                            if _sam3_box_xywh_to_cxcywh:
+                                normalized_tensor = torch.tensor(normalized_box)
+                                cx_cy_box = _sam3_box_xywh_to_cxcywh(normalized_tensor).tolist()
+                            else:
+                                cx_cy_box = _box_xywh_to_cxcywh_local(normalized_box)
                             is_positive = label == 1
                             result = self._processor.add_geometric_prompt(
-                                box, is_positive, self._current_state
+                                cx_cy_box, is_positive, self._current_state
                             )
 
                 if result:
