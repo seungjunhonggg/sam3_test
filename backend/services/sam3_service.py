@@ -49,12 +49,21 @@ class SAM3Service:
             model_checkpoint = checkpoint or settings.SAM3_CHECKPOINT
             device = settings.DEVICE
 
-            # Build the model
+            # Build the model with correct parameter names
             if model_checkpoint:
                 logger.info(f"Loading from checkpoint: {model_checkpoint}")
-                self._model = build_sam3_image_model(checkpoint=model_checkpoint, device=device)
+                self._model = build_sam3_image_model(
+                    checkpoint_path=model_checkpoint,
+                    device=device,
+                    load_from_HF=False,  # 로컬 체크포인트 사용
+                    enable_segmentation=True
+                )
             else:
-                self._model = build_sam3_image_model(device=device)
+                self._model = build_sam3_image_model(
+                    device=device,
+                    load_from_HF=True,  # HuggingFace에서 다운로드
+                    enable_segmentation=True
+                )
 
             # Create processor
             self._processor = Sam3Processor(self._model, device=device)
@@ -303,22 +312,33 @@ class SAM3Service:
         """Process SAM3 state into response format.
 
         SAM3 returns results in the state dictionary after calling prompt methods.
-        Masks may be at internal resolution (1008x1008) and need to be scaled.
+        - masks: Boolean masks (thresholded at 0.5)
+        - masks_logits: Float probability values
+        - boxes: [x0, y0, x1, y1] in original image coordinates
+        - scores: Confidence scores
         """
         try:
             import torch
             import cv2
 
             # 디버깅: SAM3 state 키 확인
-            logger.info(f"SAM3 state keys: {state.keys() if isinstance(state, dict) else type(state)}")
+            logger.info(f"SAM3 state keys: {list(state.keys()) if isinstance(state, dict) else type(state)}")
 
-            masks = state.get("masks", state.get("pred_masks", None))
-            boxes = state.get("boxes", state.get("pred_boxes", None))
-            scores = state.get("scores", state.get("pred_scores", None))
+            # masks_logits 사용 (확률값), masks가 없으면 masks 사용
+            masks = state.get("masks_logits", state.get("masks", None))
+            boxes = state.get("boxes", None)
+            scores = state.get("scores", None)
 
-            # 원본 이미지 크기 가져오기
-            orig_h = state.get("original_height", self._image_size[1] if self._image_size else None)
-            orig_w = state.get("original_width", self._image_size[0] if self._image_size else None)
+            # 원본 이미지 크기
+            orig_h = state.get("original_height")
+            orig_w = state.get("original_width")
+
+            if orig_h is None or orig_w is None:
+                if self._image_size:
+                    orig_w, orig_h = self._image_size
+                else:
+                    logger.warning("Cannot determine original image size")
+                    return {"masks": [], "count": 0}
 
             logger.info(f"Original image size: {orig_w}x{orig_h}")
 
@@ -326,51 +346,72 @@ class SAM3Service:
                 logger.warning("No masks in state")
                 return {"masks": [], "count": 0}
 
-            # masks가 텐서인 경우 처리
+            # masks 개수 확인
             if isinstance(masks, torch.Tensor):
-                masks = masks.cpu().numpy()
-                logger.info(f"Masks tensor shape: {masks.shape}")
+                logger.info(f"Masks tensor shape: {masks.shape}, dtype: {masks.dtype}")
+                num_masks = masks.shape[0]
+            else:
+                num_masks = len(masks)
+                logger.info(f"Masks list length: {num_masks}")
 
-            if len(masks) == 0:
+            if num_masks == 0:
                 return {"masks": [], "count": 0}
 
             masks_data = []
 
-            for i in range(len(masks)):
-                mask = masks[i]
+            # SAM3 예제 방식대로 마스크 순회: for mask in masks
+            for i, mask in enumerate(masks):
+                # 텐서인 경우 처리
                 if isinstance(mask, torch.Tensor):
-                    mask = mask.cpu().numpy()
+                    # mask[0]으로 첫 번째 채널 접근 (shape: [1, H, W] -> [H, W])
+                    if mask.dim() == 3 and mask.shape[0] == 1:
+                        mask_np = mask[0].cpu().numpy()
+                    else:
+                        mask_np = mask.cpu().numpy()
+                else:
+                    mask_np = np.array(mask)
 
-                # 마스크 shape 처리: [1, H, W] -> [H, W]
-                if mask.ndim == 3:
-                    mask = mask.squeeze(0) if mask.shape[0] == 1 else mask.squeeze()
+                # 여전히 3D면 squeeze
+                if mask_np.ndim == 3:
+                    mask_np = mask_np.squeeze()
 
-                # 디버깅: 마스크 정보 출력
-                logger.info(f"Mask {i} shape: {mask.shape}, dtype: {mask.dtype}, min: {mask.min():.4f}, max: {mask.max():.4f}")
+                logger.info(f"Mask {i} shape: {mask_np.shape}, dtype: {mask_np.dtype}, min: {mask_np.min():.4f}, max: {mask_np.max():.4f}")
 
-                mask_h, mask_w = mask.shape
+                mask_h, mask_w = mask_np.shape
 
-                # 마스크가 원본 이미지 크기와 다르면 리사이즈
-                if orig_h and orig_w and (mask_h != orig_h or mask_w != orig_w):
+                # 마스크 크기가 원본과 다르면 리사이즈 (SAM3 내부 해상도 1008x1008에서)
+                if mask_h != orig_h or mask_w != orig_w:
                     logger.info(f"Resizing mask from {mask_w}x{mask_h} to {orig_w}x{orig_h}")
-                    mask = cv2.resize(mask.astype(np.float32), (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+                    mask_np = cv2.resize(mask_np.astype(np.float32), (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
 
-                polygon = self._mask_to_polygon(mask)
+                polygon = self._mask_to_polygon(mask_np)
                 logger.info(f"Mask {i} polygon points: {len(polygon)}")
 
+                # bbox 처리
                 if boxes is not None and i < len(boxes):
                     bbox = boxes[i]
                     if isinstance(bbox, torch.Tensor):
                         bbox = bbox.cpu().numpy().tolist()
+                    elif isinstance(bbox, np.ndarray):
+                        bbox = bbox.tolist()
                     # SAM3 returns boxes in [x0, y0, x1, y1] pixel format
                     if bbox and len(bbox) == 4:
                         x0, y0, x1, y1 = bbox
                         bbox = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]  # Convert to [x, y, w, h]
                 else:
-                    bbox = self._mask_to_bbox(mask)
+                    bbox = self._mask_to_bbox(mask_np)
 
-                score = float(scores[i]) if scores is not None and i < len(scores) else 1.0
-                area = int(np.sum(mask > 0.5)) if isinstance(mask, np.ndarray) else 0
+                # score 처리
+                if scores is not None and i < len(scores):
+                    score_val = scores[i]
+                    if isinstance(score_val, torch.Tensor):
+                        score = float(score_val.cpu().numpy())
+                    else:
+                        score = float(score_val)
+                else:
+                    score = 1.0
+
+                area = int(np.sum(mask_np > 0.5))
 
                 masks_data.append({
                     "id": i,
