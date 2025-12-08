@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     HF_TOKEN: Optional[str] = None
     HF_MODEL_ID: str = "facebook/sam3"
 
-    # CORS settings
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # CORS settings - "*" allows all origins (for development/internal use)
+    # For production, specify exact origins like ["http://192.168.1.100:3000"]
+    CORS_ORIGINS: list[str] = ["*"]
 
     # Upload settings
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
