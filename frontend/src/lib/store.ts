@@ -31,6 +31,7 @@ interface AnnotationState {
   // SAM3 state
   samPendingMasks: SegmentationResult[];
   samTextPrompt: string;
+  samConfidenceThreshold: number;  // SAM3 confidence threshold (0.0 ~ 1.0)
 
   // Mask painting state (Paint.NET style)
   classMasks: Map<number, ClassMask>;  // classId -> ClassMask
@@ -63,6 +64,7 @@ interface AnnotationState {
 
   setSamPendingMasks: (masks: SegmentationResult[]) => void;
   setSamTextPrompt: (prompt: string) => void;
+  setSamConfidenceThreshold: (threshold: number) => void;
   clearSamPending: () => void;
 
   // Mask painting actions
@@ -98,6 +100,7 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
 
   samPendingMasks: [],
   samTextPrompt: '',
+  samConfidenceThreshold: 0.5,  // Default confidence threshold
 
   // Mask painting state
   classMasks: new Map<number, ClassMask>(),
@@ -151,6 +154,7 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
 
   setSamPendingMasks: (masks) => set({ samPendingMasks: masks }),
   setSamTextPrompt: (prompt) => set({ samTextPrompt: prompt }),
+  setSamConfidenceThreshold: (threshold) => set({ samConfidenceThreshold: Math.max(0, Math.min(1, threshold)) }),
   clearSamPending: () => set({ samPendingMasks: [], samTextPrompt: '' }),
 
   // Mask painting actions
