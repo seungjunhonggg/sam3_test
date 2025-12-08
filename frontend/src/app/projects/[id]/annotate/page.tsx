@@ -191,7 +191,7 @@ export default function AnnotatePage({ params }: Props) {
     if (!canvas || !ctx || !currentImage) return;
 
     const img = new window.Image();
-    img.src = `http://localhost:8000/uploads/${currentImage.filename}`;
+    img.src = `http://localhost:8000${currentImage.url || `/uploads/${projectId}/${currentImage.filename}`}`;
     img.onload = () => {
       canvas.width = img.width;
       canvas.height = img.height;
